@@ -1,103 +1,151 @@
 
-import { DiscernResult, SearchResultItem } from "./discern-criteria";
+import { DiscernCriteria } from "./discern-criteria";
 
-// Simulated search results - in a real implementation, this would call an API
-const mockSearchResults: SearchResultItem[] = [
-  {
-    ranking: 1,
-    title: "Diabetes: sintomas, tipos e tratamentos - Ministério da Saúde",
-    url: "https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes",
-    snippet: "O diabetes é uma doença crônica na qual o corpo não produz insulina ou não consegue empregar adequadamente a insulina que produz."
+// Exportando os tipos necessários
+export interface SearchResultItem {
+  ranking: number;
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface DiscernResult {
+  url: string;
+  title: string;
+  type: string;
+  totalScore: number;
+  scores: {
+    criteriaId: number;
+    score: number;
+    justification: string;
+  }[];
+  observations: string;
+}
+
+// Base de dados para gerar resultados simulados
+const healthTopics = [
+  { 
+    keyword: "diabetes", 
+    domains: [".gov.br", ".org.br", ".com.br", ".edu.br"],
+    titlePrefixes: ["Diabetes: ", "Como controlar ", "Tratamento para ", "Sintomas de ", "Guia completo: "],
+    titleSuffixes: [" - Ministério da Saúde", " | Hospital Albert Einstein", " | Dráuzio Varella", " | SBD", " - Guia Médico"],
+    snippets: [
+      "O diabetes é uma doença crônica na qual o corpo não produz insulina ou não consegue empregar adequadamente a insulina que produz.",
+      "Diabetes é uma doença caracterizada pela elevação da glicose no sangue (hiperglicemia).",
+      "A diabetes mellitus é uma doença metabólica que causa aumento dos níveis de glicose no sangue.",
+      "Conheça os sintomas, causas e tratamentos para diabetes tipo 1 e tipo 2.",
+      "Aprenda como controlar a diabetes através de alimentação adequada e atividade física regular."
+    ]
   },
   {
-    ranking: 2,
-    title: "Diabetes - O que é, sintomas, tipos e tratamento | Dráuzio Varella",
-    url: "https://drauziovarella.uol.com.br/doencas-e-sintomas/diabetes/",
-    snippet: "Diabetes é uma doença caracterizada pela elevação da glicose no sangue (hiperglicemia). Pode ocorrer devido a defeitos na secreção ou na ação do hormônio insulina."
+    keyword: "hipertensão",
+    domains: [".gov.br", ".org.br", ".com.br", ".edu.br"],
+    titlePrefixes: ["Hipertensão: ", "Pressão alta: ", "Como controlar ", "Tratamento para ", "Guia completo: "],
+    titleSuffixes: [" - Ministério da Saúde", " | Sociedade Brasileira de Cardiologia", " | Dráuzio Varella", " | InCor", " - Manual MSD"],
+    snippets: [
+      "A hipertensão arterial é uma doença crônica caracterizada pelos níveis elevados da pressão sanguínea nas artérias.",
+      "A pressão alta é uma condição que aumenta o risco de problemas cardíacos e acidente vascular cerebral.",
+      "Saiba como identificar e tratar a hipertensão arterial, condição que afeta milhões de brasileiros.",
+      "Conheça as causas da pressão alta e as melhores formas de tratamento e prevenção.",
+      "A hipertensão arterial sistêmica é uma doença crônica não transmissível que causa mais de 7 milhões de mortes por ano."
+    ]
   },
   {
-    ranking: 3,
-    title: "Diabetes: sintomas, causas, tipos e tratamentos | Doutora Responde",
-    url: "https://www.doutora-responde.com/blog/diabetes",
-    snippet: "A diabetes é uma doença metabólica crônica que causa o aumento da glicemia, que é a quantidade de glicose no sangue."
+    keyword: "catarata",
+    domains: [".gov.br", ".org.br", ".com.br", ".edu.br"],
+    titlePrefixes: ["Catarata: ", "Cirurgia de ", "Tratamento para ", "Sintomas de ", "Guia completo: "],
+    titleSuffixes: [" - CBO", " | Hospital de Olhos", " | Dráuzio Varella", " | Sociedade Brasileira de Oftalmologia", " - Manual MSD"],
+    snippets: [
+      "A catarata é uma condição em que o cristalino, lente natural do olho, torna-se opaco, causando diminuição da visão.",
+      "Saiba quando é necessário realizar cirurgia de catarata e como é o procedimento.",
+      "A catarata é responsável por 51% dos casos de cegueira no mundo, afetando principalmente pessoas acima de 50 anos.",
+      "O tratamento da catarata é cirúrgico e consiste na remoção do cristalino opaco e implante de uma lente intraocular.",
+      "Conheça os sintomas, causas e tratamentos para catarata, problema ocular que afeta principalmente idosos."
+    ]
   }
 ];
 
-// Simulated DISCERN results
-const mockDiscernResults: DiscernResult[] = [
-  {
-    url: "https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes",
-    title: "Diabetes: sintomas, tipos e tratamentos - Ministério da Saúde",
-    type: "HTML",
-    totalScore: 62,
-    scores: [
-      { criteriaId: 1, score: 5, justification: "Os objetivos são muito claros, explicando o que é diabetes, seus tipos e tratamentos." },
-      { criteriaId: 2, score: 4, justification: "Atinge bem os objetivos propostos, fornecendo informações completas sobre diabetes." },
-      { criteriaId: 3, score: 5, justification: "Altamente relevante para pacientes com diabetes e familiares." },
-      { criteriaId: 4, score: 4, justification: "Identifica as fontes de informação, incluindo estudos científicos." },
-      { criteriaId: 5, score: 3, justification: "Indica quando as informações foram atualizadas, mas não todas as fontes." },
-      { criteriaId: 6, score: 4, justification: "Apresenta informações de maneira balanceada e imparcial." },
-      { criteriaId: 7, score: 4, justification: "Fornece links para informações adicionais e recursos de apoio." },
-      { criteriaId: 8, score: 3, justification: "Menciona algumas áreas de incerteza, mas poderia ser mais completo." },
-      { criteriaId: 9, score: 5, justification: "Explica claramente como funcionam os tratamentos para diabetes." },
-      { criteriaId: 10, score: 5, justification: "Descreve detalhadamente os benefícios de cada tratamento." },
-      { criteriaId: 11, score: 4, justification: "Aborda os riscos dos tratamentos de forma adequada." },
-      { criteriaId: 12, score: 4, justification: "Explica as consequências de não tratar a diabetes." },
-      { criteriaId: 13, score: 4, justification: "Discute como os tratamentos afetam a qualidade de vida." },
-      { criteriaId: 14, score: 4, justification: "Apresenta claramente diferentes opções de tratamento." },
-      { criteriaId: 15, score: 4, justification: "Oferece suporte para tomada de decisão compartilhada." }
-    ],
-    observations: "Fonte oficial do Ministério da Saúde com informações abrangentes e confiáveis sobre diabetes."
-  },
-  {
-    url: "https://drauziovarella.uol.com.br/doencas-e-sintomas/diabetes/",
-    title: "Diabetes - O que é, sintomas, tipos e tratamento | Dráuzio Varella",
-    type: "HTML",
-    totalScore: 58,
-    scores: [
-      { criteriaId: 1, score: 4, justification: "Os objetivos são claros, explicando os aspectos da diabetes." },
-      { criteriaId: 2, score: 4, justification: "Atinge os objetivos de informar sobre a doença e tratamentos." },
-      { criteriaId: 3, score: 5, justification: "Conteúdo muito relevante para o público-alvo." },
-      { criteriaId: 4, score: 4, justification: "Identifica as fontes de informação médica." },
-      { criteriaId: 5, score: 3, justification: "Indica data de publicação, mas não todas as referências." },
-      { criteriaId: 6, score: 4, justification: "Conteúdo balanceado com foco em evidências." },
-      { criteriaId: 7, score: 3, justification: "Fornece algumas fontes adicionais de informação." },
-      { criteriaId: 8, score: 3, justification: "Menciona algumas áreas de incerteza no tratamento." },
-      { criteriaId: 9, score: 5, justification: "Explica claramente os mecanismos de tratamento." },
-      { criteriaId: 10, score: 4, justification: "Descreve os benefícios esperados dos tratamentos." },
-      { criteriaId: 11, score: 4, justification: "Aborda riscos e efeitos colaterais dos medicamentos." },
-      { criteriaId: 12, score: 4, justification: "Explica as consequências da diabetes não tratada." },
-      { criteriaId: 13, score: 4, justification: "Discute impactos na qualidade de vida." },
-      { criteriaId: 14, score: 4, justification: "Apresenta diferentes opções terapêuticas." },
-      { criteriaId: 15, score: 3, justification: "Oferece algum suporte para tomada de decisão." }
-    ],
-    observations: "Conteúdo criado por uma fonte médica respeitada, com informações baseadas em evidências científicas."
-  },
-  {
-    url: "https://www.doutora-responde.com/blog/diabetes",
-    title: "Diabetes: sintomas, causas, tipos e tratamentos | Doutora Responde",
-    type: "HTML",
-    totalScore: 45,
-    scores: [
-      { criteriaId: 1, score: 3, justification: "Os objetivos são relativamente claros, mas não totalmente explícitos." },
-      { criteriaId: 2, score: 3, justification: "Atinge parcialmente os objetivos de informar sobre diabetes." },
-      { criteriaId: 3, score: 4, justification: "Conteúdo relevante para pessoas interessadas em diabetes." },
-      { criteriaId: 4, score: 2, justification: "Fontes de informação pouco identificadas." },
-      { criteriaId: 5, score: 2, justification: "Data das informações não claramente indicada." },
-      { criteriaId: 6, score: 3, justification: "Apresenta algum balanceamento, mas com viés ocasional." },
-      { criteriaId: 7, score: 2, justification: "Poucas fontes adicionais de informação." },
-      { criteriaId: 8, score: 2, justification: "Raramente menciona áreas de incerteza." },
-      { criteriaId: 9, score: 3, justification: "Explicação básica sobre como funcionam os tratamentos." },
-      { criteriaId: 10, score: 4, justification: "Descreve adequadamente os benefícios dos tratamentos." },
-      { criteriaId: 11, score: 3, justification: "Menciona alguns riscos dos tratamentos, mas não todos." },
-      { criteriaId: 12, score: 3, justification: "Discute brevemente o que acontece sem tratamento." },
-      { criteriaId: 13, score: 3, justification: "Abordagem limitada sobre qualidade de vida." },
-      { criteriaId: 14, score: 4, justification: "Apresenta diversas opções de tratamento." },
-      { criteriaId: 15, score: 3, justification: "Suporte limitado para tomada de decisão." }
-    ],
-    observations: "Site de informações médicas com conteúdo de qualidade média, faltando algumas referências científicas e detalhes importantes."
+// Função para gerar resultados simulados baseados na palavra-chave e quantidade
+function generateMockResults(keyword: string, quantity: number): SearchResultItem[] {
+  // Encontrar o tópico relevante ou usar o primeiro como padrão
+  const topic = healthTopics.find(t => keyword.toLowerCase().includes(t.keyword)) || healthTopics[0];
+  
+  const results: SearchResultItem[] = [];
+  
+  for (let i = 1; i <= quantity; i++) {
+    const titlePrefix = topic.titlePrefixes[Math.floor(Math.random() * topic.titlePrefixes.length)];
+    const titleSuffix = topic.titleSuffixes[Math.floor(Math.random() * topic.titleSuffixes.length)];
+    const domain = topic.domains[Math.floor(Math.random() * topic.domains.length)];
+    const snippet = topic.snippets[Math.floor(Math.random() * topic.snippets.length)];
+    const urlPath = keyword.toLowerCase().replace(/\s+/g, '-');
+    
+    results.push({
+      ranking: i,
+      title: `${titlePrefix}${keyword}${titleSuffix}`,
+      url: `https://saude${domain}/${urlPath}-${i}`,
+      snippet: snippet
+    });
   }
-];
+  
+  return results;
+}
+
+// Função para gerar análises DISCERN simuladas
+function generateMockDiscernResults(searchResults: SearchResultItem[]): DiscernResult[] {
+  return searchResults.map((result) => {
+    const scores = [];
+    let totalScore = 0;
+    
+    // Gerar pontuações para cada critério (1-15)
+    for (let criteriaId = 1; criteriaId <= 15; criteriaId++) {
+      // Gerar pontuação entre 2 e 5, com maior probabilidade de valores mais altos para sites gov.br e mais baixos para outros
+      const isGovSite = result.url.includes('.gov.br');
+      const baseScore = isGovSite ? 3 : 2;
+      const maxBonus = isGovSite ? 2 : 3;
+      const score = baseScore + Math.floor(Math.random() * maxBonus);
+      
+      totalScore += score;
+      
+      // Justificativas genéricas baseadas na pontuação
+      let justification = '';
+      if (score >= 4) {
+        justification = `Excelente abordagem no critério ${criteriaId}, com informações detalhadas e precisas.`;
+      } else if (score === 3) {
+        justification = `Abordagem satisfatória do critério ${criteriaId}, mas poderia ser mais completa.`;
+      } else {
+        justification = `Abordagem insuficiente do critério ${criteriaId}, faltam informações importantes.`;
+      }
+      
+      scores.push({
+        criteriaId,
+        score,
+        justification
+      });
+    }
+    
+    // Tipo de conteúdo e observações
+    const contentTypes = ["HTML", "PDF", "HTML", "HTML", "YouTube"];
+    const type = contentTypes[Math.floor(Math.random() * contentTypes.length)];
+    
+    let observations = '';
+    if (totalScore > 60) {
+      observations = "Fonte de alta qualidade com informações abrangentes e confiáveis.";
+    } else if (totalScore > 45) {
+      observations = "Fonte de qualidade média com algumas informações úteis, mas com lacunas importantes.";
+    } else {
+      observations = "Fonte de baixa qualidade com informações incompletas ou potencialmente enganosas.";
+    }
+    
+    return {
+      url: result.url,
+      title: result.title,
+      type,
+      totalScore,
+      scores,
+      observations
+    };
+  });
+}
 
 // Search function to simulate API call
 export async function searchWithKeyword(keyword: string, quantity: number = 10): Promise<SearchResultItem[]> {
@@ -106,7 +154,8 @@ export async function searchWithKeyword(keyword: string, quantity: number = 10):
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 1500));
   
-  return mockSearchResults;
+  // Generate dynamic results based on the quantity requested
+  return generateMockResults(keyword, quantity);
 }
 
 // DISCERN analysis function to simulate API call
@@ -116,8 +165,9 @@ export async function analyzeWithDiscern(url: string): Promise<DiscernResult | n
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 2000));
   
-  const result = mockDiscernResults.find(item => item.url === url);
-  return result || null;
+  // In a real implementation, this would fetch and analyze the URL
+  // For now, we'll return null since this function is not used directly
+  return null;
 }
 
 // Batch analysis function
@@ -127,7 +177,22 @@ export async function batchAnalyzeWithDiscern(urls: string[]): Promise<DiscernRe
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 3000));
   
-  return mockDiscernResults.filter(item => urls.includes(item.url));
+  // Generate mock DISCERN results for the search results
+  const searchResults = urls.map((url, index) => {
+    // Extract title from URL for simulation
+    const urlParts = url.split('/');
+    const pathPart = urlParts[urlParts.length - 1];
+    const title = pathPart.split('-').join(' ');
+    
+    return {
+      ranking: index + 1,
+      title: `Result for ${title}`,
+      url,
+      snippet: "Generated snippet for this result"
+    };
+  });
+  
+  return generateMockDiscernResults(searchResults);
 }
 
 // Export function
