@@ -1,1 +1,5 @@
+
 project_id = "xcejjyetzjncyefjqwod"
+
+[functions.google-search]
+verify_jwt = false

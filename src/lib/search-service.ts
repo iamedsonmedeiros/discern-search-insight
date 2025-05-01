@@ -1,5 +1,5 @@
-
 import { DiscernCriteria } from "./discern-criteria";
+import { supabase } from "@/integrations/supabase/client";
 
 // Exportando os tipos necessários
 export interface SearchResultItem {
@@ -22,7 +22,9 @@ export interface DiscernResult {
   observations: string;
 }
 
-// Base de dados para gerar resultados simulados
+// Base de dados para gerar resultados simulados de análise DISCERN
+// Manteremos isso para gerar as análises DISCERN enquanto implementamos
+// a funcionalidade real de busca
 const healthTopics = [
   { 
     keyword: "diabetes", 
@@ -64,31 +66,6 @@ const healthTopics = [
     ]
   }
 ];
-
-// Função para gerar resultados simulados baseados na palavra-chave e quantidade
-function generateMockResults(keyword: string, quantity: number): SearchResultItem[] {
-  // Encontrar o tópico relevante ou usar o primeiro como padrão
-  const topic = healthTopics.find(t => keyword.toLowerCase().includes(t.keyword)) || healthTopics[0];
-  
-  const results: SearchResultItem[] = [];
-  
-  for (let i = 1; i <= quantity; i++) {
-    const titlePrefix = topic.titlePrefixes[Math.floor(Math.random() * topic.titlePrefixes.length)];
-    const titleSuffix = topic.titleSuffixes[Math.floor(Math.random() * topic.titleSuffixes.length)];
-    const domain = topic.domains[Math.floor(Math.random() * topic.domains.length)];
-    const snippet = topic.snippets[Math.floor(Math.random() * topic.snippets.length)];
-    const urlPath = keyword.toLowerCase().replace(/\s+/g, '-');
-    
-    results.push({
-      ranking: i,
-      title: `${titlePrefix}${keyword}${titleSuffix}`,
-      url: `https://saude${domain}/${urlPath}-${i}`,
-      snippet: snippet
-    });
-  }
-  
-  return results;
-}
 
 // Função para gerar análises DISCERN simuladas
 function generateMockDiscernResults(searchResults: SearchResultItem[]): DiscernResult[] {
@@ -147,15 +124,27 @@ function generateMockDiscernResults(searchResults: SearchResultItem[]): DiscernR
   });
 }
 
-// Search function to simulate API call
+// Função de busca que agora usa a Edge Function do Supabase
 export async function searchWithKeyword(keyword: string, quantity: number = 10): Promise<SearchResultItem[]> {
   console.log(`Searching for "${keyword}" with quantity: ${quantity}`);
   
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  // Generate dynamic results based on the quantity requested
-  return generateMockResults(keyword, quantity);
+  try {
+    // Chamar a Edge Function do Supabase para fazer a busca real no Google
+    const { data, error } = await supabase.functions.invoke("google-search", {
+      body: { keyword, quantity },
+    });
+    
+    if (error) {
+      console.error("Error calling google-search function:", error);
+      throw error;
+    }
+    
+    console.log(`Received ${data?.length || 0} search results`);
+    return data || [];
+  } catch (error) {
+    console.error("Error in searchWithKeyword:", error);
+    throw error;
+  }
 }
 
 // DISCERN analysis function to simulate API call
