@@ -32,13 +32,90 @@ const ExportButton: React.FC<ExportButtonProps> = ({ results, disabled = false }
 
     setIsExporting(true);
     try {
-      await exportResults(results);
+      if (format === 'sheet') {
+        // Criar cabeçalhos para o CSV
+        const headers = [
+          "URL", 
+          "Título", 
+          "Tipo", 
+          "Pontuação Total",
+          "Observações"
+        ];
+        
+        // Adicionar cabeçalhos para cada critério (1-15)
+        for (let i = 1; i <= 15; i++) {
+          headers.push(`Critério ${i} Pontuação`);
+          headers.push(`Critério ${i} Justificativa`);
+        }
+        
+        // Criar linhas de dados
+        const csvData = results.map(result => {
+          const row = [
+            result.url,
+            result.title,
+            result.type,
+            result.totalScore.toString(),
+            result.observations
+          ];
+          
+          // Criar um mapa de scores para fácil acesso
+          const scoresMap = {};
+          result.scores.forEach(score => {
+            scoresMap[score.criteriaId] = {
+              score: score.score,
+              justification: score.justification
+            };
+          });
+          
+          // Adicionar pontuações e justificativas para cada critério
+          for (let i = 1; i <= 15; i++) {
+            if (scoresMap[i]) {
+              row.push(scoresMap[i].score.toString());
+              row.push(scoresMap[i].justification);
+            } else {
+              row.push('');
+              row.push('');
+            }
+          }
+          
+          return row;
+        });
+        
+        // Converter para formato CSV
+        let csvContent = headers.join(',') + '\n';
+        csvData.forEach(row => {
+          // Processar cada célula para lidar com vírgulas, aspas e quebras de linha
+          const processedRow = row.map(cell => {
+            // Se contém vírgulas, aspas ou quebras de linha, colocar entre aspas duplas
+            if (cell && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+              return '"' + cell.replace(/"/g, '""') + '"';
+            }
+            return cell;
+          });
+          csvContent += processedRow.join(',') + '\n';
+        });
+        
+        // Criar blob e link para download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const date = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', `discern_results_${date}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.parentNode.removeChild(link);
+      } else {
+        // Simulação de exportação para Google Docs (mantido para compatibilidade)
+        await exportResults(results);
+      }
       
       toast({
         title: "Exportação concluída",
         description: format === 'sheet' 
-          ? "Os resultados foram exportados para Google Sheets com sucesso." 
-          : "O relatório foi gerado no Google Docs com sucesso.",
+          ? "Os resultados foram exportados para CSV. Você pode importá-lo no Google Sheets." 
+          : "O relatório foi gerado com sucesso.",
         duration: 5000
       });
     } catch (error) {
@@ -76,7 +153,7 @@ const ExportButton: React.FC<ExportButtonProps> = ({ results, disabled = false }
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => handleExport('sheet')}>
           <FileSpreadsheet className="h-4 w-4 mr-2" />
-          Exportar para Google Sheets
+          Exportar para CSV (Google Sheets)
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleExport('doc')}>
           <FileText className="h-4 w-4 mr-2" />
