@@ -107,15 +107,53 @@ const ExportButton: React.FC<ExportButtonProps> = ({ results, disabled = false }
         link.click();
         link.parentNode.removeChild(link);
       } else {
-        // Simulação de exportação para Google Docs (mantido para compatibilidade)
-        await exportResults(results);
+        // Criar o conteúdo do documento para o Google Docs
+        let docContent = "# Relatório de Análise DISCERN\n\n";
+        docContent += `Data: ${new Date().toLocaleDateString('pt-BR')}\n`;
+        docContent += `Total de sites analisados: ${results.length}\n\n`;
+
+        // Adicionar cada resultado ao relatório
+        results.forEach((result, index) => {
+          docContent += `## ${index + 1}. ${result.title}\n`;
+          docContent += `URL: ${result.url}\n`;
+          docContent += `Tipo: ${result.type}\n`;
+          docContent += `Pontuação Total: ${result.totalScore}/75\n\n`;
+          
+          if (result.observations) {
+            docContent += `### Observações Gerais\n${result.observations}\n\n`;
+          }
+          
+          docContent += "### Pontuações por Critério\n\n";
+          
+          // Organizar os critérios numericamente
+          const sortedScores = [...result.scores].sort((a, b) => a.criteriaId - b.criteriaId);
+          
+          sortedScores.forEach(score => {
+            docContent += `**Critério ${score.criteriaId}:** ${score.score}/5\n`;
+            docContent += `Justificativa: ${score.justification}\n\n`;
+          });
+          
+          docContent += "---\n\n";
+        });
+
+        // Criar um arquivo de texto para download
+        const blob = new Blob([docContent], { type: 'text/plain;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const date = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', `discern_relatorio_${date}.txt`);
+        document.body.appendChild(link);
+        link.click();
+        link.parentNode.removeChild(link);
       }
       
       toast({
         title: "Exportação concluída",
         description: format === 'sheet' 
           ? "Os resultados foram exportados para CSV. Você pode importá-lo no Google Sheets." 
-          : "O relatório foi gerado com sucesso.",
+          : "O relatório foi gerado em formato de texto. Você pode importá-lo no Google Docs.",
         duration: 5000
       });
     } catch (error) {
@@ -157,7 +195,7 @@ const ExportButton: React.FC<ExportButtonProps> = ({ results, disabled = false }
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleExport('doc')}>
           <FileText className="h-4 w-4 mr-2" />
-          Gerar relatório no Google Docs
+          Gerar relatório em formato de texto (Google Docs)
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
