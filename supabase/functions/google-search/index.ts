@@ -43,9 +43,16 @@ serve(async (req) => {
       searchUrl.searchParams.append("q", keyword);
       searchUrl.searchParams.append("start", startIndex.toString());
       searchUrl.searchParams.append("num", Math.min(maxResultsPerPage, quantity - allResults.length).toString());
-      searchUrl.searchParams.append("gl", "br"); // Definir localização para Brasil
-      searchUrl.searchParams.append("lr", "lang_pt"); // Definir idioma para português
-      searchUrl.searchParams.append("cr", "countryBR"); // Definir país para Brasil
+      
+      // Parâmetros aprimorados para resultados brasileiros não personalizados
+      searchUrl.searchParams.append("gl", "br"); // Localização geográfica: Brasil
+      searchUrl.searchParams.append("lr", "lang_pt"); // Idioma dos resultados: Português
+      searchUrl.searchParams.append("cr", "countryBR"); // País: Brasil
+      searchUrl.searchParams.append("safe", "off"); // Desativar filtro SafeSearch
+      searchUrl.searchParams.append("sort", ""); // Sem ordenação específica (resultados mais relevantes)
+      searchUrl.searchParams.append("filter", "0"); // Desativa filtragem de resultados semelhantes
+      searchUrl.searchParams.append("hl", "pt-BR"); // Interface em Português do Brasil
+      searchUrl.searchParams.append("googlehost", "google.com.br"); // Host específico do Google Brasil
       
       console.log(`Fetching page ${page + 1} of ${pagesToFetch}, startIndex: ${startIndex}`);
       
