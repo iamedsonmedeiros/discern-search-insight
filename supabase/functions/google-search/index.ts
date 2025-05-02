@@ -43,6 +43,9 @@ serve(async (req) => {
       searchUrl.searchParams.append("q", keyword);
       searchUrl.searchParams.append("start", startIndex.toString());
       searchUrl.searchParams.append("num", Math.min(maxResultsPerPage, quantity - allResults.length).toString());
+      searchUrl.searchParams.append("gl", "br"); // Definir localização para Brasil
+      searchUrl.searchParams.append("lr", "lang_pt"); // Definir idioma para português
+      searchUrl.searchParams.append("cr", "countryBR"); // Definir país para Brasil
       
       console.log(`Fetching page ${page + 1} of ${pagesToFetch}, startIndex: ${startIndex}`);
       
