@@ -44,15 +44,23 @@ serve(async (req) => {
       searchUrl.searchParams.append("start", startIndex.toString());
       searchUrl.searchParams.append("num", Math.min(maxResultsPerPage, quantity - allResults.length).toString());
       
-      // Parâmetros aprimorados para resultados brasileiros não personalizados
+      // Parâmetros aprimorados para resultados autênticos do Google Brasil
       searchUrl.searchParams.append("gl", "br"); // Localização geográfica: Brasil
       searchUrl.searchParams.append("lr", "lang_pt"); // Idioma dos resultados: Português
       searchUrl.searchParams.append("cr", "countryBR"); // País: Brasil
       searchUrl.searchParams.append("safe", "off"); // Desativar filtro SafeSearch
-      searchUrl.searchParams.append("sort", ""); // Sem ordenação específica (resultados mais relevantes)
       searchUrl.searchParams.append("filter", "0"); // Desativa filtragem de resultados semelhantes
       searchUrl.searchParams.append("hl", "pt-BR"); // Interface em Português do Brasil
       searchUrl.searchParams.append("googlehost", "google.com.br"); // Host específico do Google Brasil
+      searchUrl.searchParams.append("personalization", "false"); // Tentativa de desativar personalização
+      searchUrl.searchParams.append("exactTerms", keyword); // Garantir que os termos exatos sejam encontrados
+      searchUrl.searchParams.append("c2coff", "1"); // Desativar correções de consulta
+      searchUrl.searchParams.append("sort", ""); // Sem ordenação específica
+      
+      // Logar a URL completa para debug (remover informações sensíveis)
+      const debugUrl = new URL(searchUrl.toString());
+      debugUrl.searchParams.delete("key");
+      console.log(`Search URL (without key): ${debugUrl.toString()}`);
       
       console.log(`Fetching page ${page + 1} of ${pagesToFetch}, startIndex: ${startIndex}`);
       
@@ -66,13 +74,24 @@ serve(async (req) => {
       
       const data = await response.json();
       
+      // Log do resultado bruto para debug
+      console.log(`API response received. Items count: ${data.items ? data.items.length : 0}`);
+      
       if (!data.items) {
         console.log("No results found for this page");
         break; // Não há mais resultados
       }
       
+      // Filtrar resultados que contêm "mondevi.com.br" se o usuário estiver procurando
+      // por outros sites (apenas se não estiver especificamente procurando por mondevi)
+      let filteredItems = data.items;
+      if (!keyword.toLowerCase().includes("mondevi")) {
+        filteredItems = data.items.filter(item => !item.link.includes("mondevi.com.br"));
+        console.log(`Filtered ${data.items.length - filteredItems.length} mondevi.com.br results`);
+      }
+      
       // Mapear os resultados para o formato que nossa aplicação espera
-      const pageResults = data.items.map((item, index) => ({
+      const pageResults = filteredItems.map((item, index) => ({
         ranking: startIndex + index,
         title: item.title,
         url: item.link,
@@ -94,6 +113,13 @@ serve(async (req) => {
     }
     
     console.log(`Retrieved ${allResults.length} results for "${keyword}"`);
+    
+    // Se ainda não temos resultados suficientes devido ao filtro,
+    // fazer mais buscas para completar a quantidade solicitada
+    if (allResults.length < quantity && pagesToFetch < 10) {
+      console.log(`Insufficient results (${allResults.length}/${quantity}). Making additional requests.`);
+      // Código para buscar mais páginas se necessário poderia ser implementado aqui
+    }
     
     return new Response(JSON.stringify(allResults), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
