@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { getQualityColor } from "@/lib/discern-criteria";
 import DiscernScore from "./DiscernScore";
 import ResultDetails from "./ResultDetails";
-import { ChevronDown, ChevronUp, ExternalLink, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 
 interface SearchResultsProps {
   searchResults: SearchResultItem[];
@@ -20,14 +20,9 @@ const SearchResults: React.FC<SearchResultsProps> = ({
   discernResults,
 }) => {
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
-  const [showFilterWarning, setShowFilterWarning] = useState<boolean>(true);
 
   const toggleExpand = (url: string) => {
     setExpandedResult(expandedResult === url ? null : url);
-  };
-
-  const handleDismissWarning = () => {
-    setShowFilterWarning(false);
   };
 
   if (searchResults.length === 0) {
@@ -35,29 +30,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
   }
 
   return (
-    <div className="w-full max-w-4xl animate-fade-in">
-      {showFilterWarning && (
-        <div className="bg-amber-50 border-l-4 border-amber-400 p-4 mb-6 rounded-md flex justify-between items-start">
-          <div className="flex items-start">
-            <AlertCircle className="h-5 w-5 text-amber-400 mr-3 mt-0.5" />
-            <div>
-              <p className="text-sm text-amber-800">
-                <strong>Nota sobre os resultados:</strong> Os resultados deste sistema podem diferir do Google padrão pois utilizam a API Google Custom Search.
-                Alguns sites de baixa qualidade como mondevi.com.br são automaticamente filtrados para melhorar a qualidade das análises DISCERN.
-              </p>
-            </div>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="text-amber-800 hover:bg-amber-100"
-            onClick={handleDismissWarning}
-          >
-            Fechar
-          </Button>
-        </div>
-      )}
-      
+    <div className="w-full max-w-4xl animate-fade-in">      
       <Tabs defaultValue="results" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="results">
