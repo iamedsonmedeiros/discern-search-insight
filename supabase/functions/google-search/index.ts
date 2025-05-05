@@ -63,14 +63,23 @@ serve(async (req) => {
     
     const data = await response.json();
     
+    // Log detailed information about the response
     console.log(`API response received. Organic results: ${data.organic_results ? data.organic_results.length : 0}`);
     console.log("Response structure keys:", Object.keys(data));
+    console.log(`Requested: ${quantity} results, Received: ${data.organic_results ? data.organic_results.length : 0} results`);
     
     if (!data.organic_results || data.organic_results.length === 0) {
       console.log("No organic results found in response");
       // Log first few keys of the response to debug
       console.log("Response data sample:", JSON.stringify(data).substring(0, 500));
-      return new Response(JSON.stringify([]), {
+      return new Response(JSON.stringify({ 
+        results: [],
+        metadata: {
+          requested: quantity,
+          received: 0,
+          message: "No results found for this query"
+        }
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -85,13 +94,27 @@ serve(async (req) => {
     
     console.log(`Mapped ${results.length} results for "${keyword}"`);
     
-    return new Response(JSON.stringify(results), {
+    return new Response(JSON.stringify({
+      results: results,
+      metadata: {
+        requested: quantity,
+        received: results.length,
+        message: results.length < quantity ? 
+          `Solicitados ${quantity} resultados, mas a API retornou apenas ${results.length}` : 
+          `${results.length} resultados encontrados`
+      }
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (error) {
     console.error("Error in google-search function:", error);
     return new Response(
-      JSON.stringify({ error: error.message || "Unknown error occurred" }),
+      JSON.stringify({ 
+        error: error.message || "Unknown error occurred",
+        metadata: {
+          message: "Ocorreu um erro na busca"
+        }
+      }),
       { 
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }

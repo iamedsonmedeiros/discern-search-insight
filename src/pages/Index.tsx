@@ -5,17 +5,20 @@ import SearchResults from "@/components/SearchResults";
 import ExportButton from "@/components/ExportButton";
 import { 
   SearchResultItem, 
-  DiscernResult, 
+  DiscernResult,
+  SearchMetadata,
   searchWithKeyword, 
   batchAnalyzeWithDiscern 
 } from "@/lib/search-service";
 import { useToast } from "@/components/ui/use-toast";
-import { FileCheck, Info } from "lucide-react";
+import { FileCheck, Info, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const Index = () => {
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [discernResults, setDiscernResults] = useState<DiscernResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchMetadata, setSearchMetadata] = useState<SearchMetadata | null>(null);
   const { toast } = useToast();
 
   const handleSearch = async (keyword: string, quantity: number) => {
@@ -24,6 +27,15 @@ const Index = () => {
       // Step 1: Perform search
       const results = await searchWithKeyword(keyword, quantity);
       setSearchResults(results);
+      
+      // Se houver metadados de busca disponíveis
+      const metadata = results.length < quantity ? {
+        requested: quantity,
+        received: results.length,
+        message: `A API retornou menos resultados (${results.length}) do que foi solicitado (${quantity})`
+      } : null;
+      
+      setSearchMetadata(metadata);
       
       // Show toast for search completed
       toast({
@@ -86,6 +98,15 @@ const Index = () => {
 
         {searchResults.length > 0 && (
           <div className="w-full flex flex-col items-center gap-6 animate-slide-in">
+            {searchMetadata && (
+              <Alert className="w-full max-w-4xl bg-amber-50 border-amber-200">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                <AlertDescription className="text-amber-700">
+                  {searchMetadata.message}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <div className="flex w-full max-w-4xl justify-between items-center px-4">
               <div className="flex items-center gap-2">
                 <FileCheck className="text-discern-primary h-5 w-5" />

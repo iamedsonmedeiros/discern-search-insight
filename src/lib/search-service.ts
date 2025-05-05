@@ -1,3 +1,4 @@
+
 import { DiscernCriteria } from "./discern-criteria";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -7,6 +8,18 @@ export interface SearchResultItem {
   title: string;
   url: string;
   snippet: string;
+}
+
+export interface SearchMetadata {
+  requested: number;
+  received: number;
+  message: string;
+}
+
+export interface SearchResponse {
+  results: SearchResultItem[];
+  metadata: SearchMetadata;
+  error?: string;
 }
 
 export interface DiscernResult {
@@ -139,8 +152,27 @@ export async function searchWithKeyword(keyword: string, quantity: number = 10):
       throw error;
     }
     
-    console.log(`Received ${data?.length || 0} search results`);
-    return data || [];
+    // Checar o novo formato de resposta
+    if (data && data.results) {
+      console.log(`Received ${data.results.length || 0} search results`);
+      
+      // Mostrar metadados da resposta se disponíveis
+      if (data.metadata) {
+        console.log(`Search metadata: Requested ${data.metadata.requested}, Received ${data.metadata.received}`);
+        console.log(`Message: ${data.metadata.message}`);
+      }
+      
+      return data.results || [];
+    }
+    
+    // Compatibilidade com o formato antigo (caso ainda receba apenas a array)
+    if (Array.isArray(data)) {
+      console.log(`Received ${data.length || 0} search results (old format)`);
+      return data || [];
+    }
+    
+    console.error("Unexpected response format:", data);
+    return [];
   } catch (error) {
     console.error("Error in searchWithKeyword:", error);
     throw error;
