@@ -19,17 +19,20 @@ serve(async (req) => {
   try {
     const { keyword, quantity = 10 } = await req.json();
     
-    console.log(`Searching with SERP API for "${keyword}" with quantity: ${quantity}`);
+    // Ajuste: Solicitamos quantidade+1 para compensar a discrepância da API
+    const adjustedQuantity = quantity + 1;
+    
+    console.log(`Searching with SERP API for "${keyword}" with quantity: ${quantity} (adjusted to ${adjustedQuantity})`);
     
     if (!SERP_API_KEY) {
       throw new Error("Missing SERP API credentials");
     }
 
-    // Setup the SERP API parameters
+    // Setup the SERP API parameters with quantidade ajustada
     const searchUrl = new URL("https://serpapi.com/search.json");
     searchUrl.searchParams.append("api_key", SERP_API_KEY);
     searchUrl.searchParams.append("q", keyword);
-    searchUrl.searchParams.append("num", quantity.toString());
+    searchUrl.searchParams.append("num", adjustedQuantity.toString());
     
     // Configure for Brazilian Google in Portuguese
     searchUrl.searchParams.append("gl", "br"); // Geolocation: Brazil
@@ -66,7 +69,7 @@ serve(async (req) => {
     // Log detailed information about the response
     console.log(`API response received. Organic results: ${data.organic_results ? data.organic_results.length : 0}`);
     console.log("Response structure keys:", Object.keys(data));
-    console.log(`Requested: ${quantity} results, Received: ${data.organic_results ? data.organic_results.length : 0} results`);
+    console.log(`Requested: ${quantity} results (adjusted to ${adjustedQuantity}), Received: ${data.organic_results ? data.organic_results.length : 0} results`);
     
     if (!data.organic_results || data.organic_results.length === 0) {
       console.log("No organic results found in response");
@@ -76,6 +79,7 @@ serve(async (req) => {
         results: [],
         metadata: {
           requested: quantity,
+          adjusted: adjustedQuantity,
           received: 0,
           message: "No results found for this query"
         }
@@ -84,7 +88,8 @@ serve(async (req) => {
       });
     }
     
-    // Map the SERP API results to our app's format
+    // Mapear resultados, mas garantir que não exceda a quantidade originalmente solicitada
+    // pelo usuário, mesmo que a API retorne mais (devido ao ajuste)
     const results = data.organic_results.slice(0, quantity).map((item, index) => ({
       ranking: index + 1,
       title: item.title,
@@ -92,16 +97,22 @@ serve(async (req) => {
       snippet: item.snippet || "Sem descrição disponível"
     }));
     
-    console.log(`Mapped ${results.length} results for "${keyword}"`);
+    const receivedResults = data.organic_results.length;
+    const returnedResults = results.length;
     
+    console.log(`Mapped ${returnedResults} results for "${keyword}" (adjusted request: ${adjustedQuantity}, API returned: ${receivedResults})`);
+    
+    // Atualização do metadata para incluir a quantidade ajustada
     return new Response(JSON.stringify({
       results: results,
       metadata: {
         requested: quantity,
-        received: results.length,
-        message: results.length < quantity ? 
-          `Solicitados ${quantity} resultados, mas a API retornou apenas ${results.length}` : 
-          `${results.length} resultados encontrados`
+        adjusted: adjustedQuantity,
+        received: receivedResults,
+        returned: returnedResults,
+        message: returnedResults < quantity ? 
+          `Solicitados ${quantity} resultados (ajustado para ${adjustedQuantity}), mas mesmo assim a API retornou apenas ${receivedResults}` : 
+          `${returnedResults} resultados encontrados conforme solicitado`
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
