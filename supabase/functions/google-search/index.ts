@@ -45,17 +45,31 @@ serve(async (req) => {
     const response = await fetch(searchUrl.toString());
     
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error("SERP API error:", errorData);
-      throw new Error(`SERP API error: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error("SERP API error response:", errorText);
+      
+      let errorMessage = `SERP API error: ${response.status} ${response.statusText}`;
+      try {
+        // Try to parse as JSON if possible
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.error || errorMessage;
+        console.error("Parsed error:", errorData);
+      } catch (e) {
+        console.error("Could not parse error as JSON:", e);
+      }
+      
+      throw new Error(errorMessage);
     }
     
     const data = await response.json();
     
     console.log(`API response received. Organic results: ${data.organic_results ? data.organic_results.length : 0}`);
+    console.log("Response structure keys:", Object.keys(data));
     
     if (!data.organic_results || data.organic_results.length === 0) {
-      console.log("No results found");
+      console.log("No organic results found in response");
+      // Log first few keys of the response to debug
+      console.log("Response data sample:", JSON.stringify(data).substring(0, 500));
       return new Response(JSON.stringify([]), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
@@ -69,13 +83,13 @@ serve(async (req) => {
       snippet: item.snippet || "Sem descrição disponível"
     }));
     
-    console.log(`Retrieved ${results.length} results for "${keyword}"`);
+    console.log(`Mapped ${results.length} results for "${keyword}"`);
     
     return new Response(JSON.stringify(results), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   } catch (error) {
-    console.error("Error in serp-search function:", error);
+    console.error("Error in google-search function:", error);
     return new Response(
       JSON.stringify({ error: error.message || "Unknown error occurred" }),
       { 
