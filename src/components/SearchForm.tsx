@@ -12,13 +12,21 @@ import {
 } from "@/components/ui/select";
 import { Search, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { Progress } from "@/components/ui/progress";
 
 interface SearchFormProps {
   onSearch: (keyword: string, quantity: number) => void;
   isLoading: boolean;
+  progressStage?: string;
+  progressPercent?: number;
 }
 
-const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
+const SearchForm = ({ 
+  onSearch, 
+  isLoading, 
+  progressStage = "", 
+  progressPercent = 0 
+}: SearchFormProps) => {
   const [keyword, setKeyword] = useState<string>("");
   const [quantity, setQuantity] = useState<number>(10);
   const { toast } = useToast();
@@ -74,6 +82,16 @@ const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
           </SelectContent>
         </Select>
       </div>
+      
+      {isLoading && (
+        <div className="space-y-2">
+          <div className="flex justify-between items-center text-sm text-muted-foreground">
+            <span>{progressStage || "Pesquisando..."}</span>
+            <span>{progressPercent}%</span>
+          </div>
+          <Progress value={progressPercent} className="h-2" />
+        </div>
+      )}
       
       <Button 
         type="submit" 

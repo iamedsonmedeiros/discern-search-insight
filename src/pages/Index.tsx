@@ -14,15 +14,35 @@ import { useToast } from "@/components/ui/use-toast";
 import { FileCheck, Info, AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+// Estágios do processo de busca e análise
+const SEARCH_STAGES = {
+  SEARCH: { name: "Buscando resultados...", percent: 20 },
+  ANALYZE_START: { name: "Iniciando análise DISCERN...", percent: 40 },
+  ANALYZE_PROGRESS: { name: "Analisando conteúdo...", percent: 60 },
+  ANALYZE_COMPLETE: { name: "Finalizando análise...", percent: 80 },
+  COMPLETE: { name: "Concluído!", percent: 100 }
+};
+
 const Index = () => {
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [discernResults, setDiscernResults] = useState<DiscernResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchMetadata, setSearchMetadata] = useState<SearchMetadata | null>(null);
+  const [progressStage, setProgressStage] = useState<string>("");
+  const [progressPercent, setProgressPercent] = useState<number>(0);
   const { toast } = useToast();
+
+  const updateProgress = (stage: keyof typeof SEARCH_STAGES) => {
+    setProgressStage(SEARCH_STAGES[stage].name);
+    setProgressPercent(SEARCH_STAGES[stage].percent);
+  };
 
   const handleSearch = async (keyword: string, quantity: number) => {
     setIsSearching(true);
+    setSearchResults([]);
+    setDiscernResults([]);
+    updateProgress("SEARCH");
+    
     try {
       // Step 1: Perform search
       const results = await searchWithKeyword(keyword, quantity);
@@ -44,11 +64,17 @@ const Index = () => {
       });
       
       // Step 2: Analyze with DISCERN (in batches if many results)
+      updateProgress("ANALYZE_START");
       const urls = results.map(result => result.url);
+      
+      // Atualizar o progresso para simular o progresso da análise
+      updateProgress("ANALYZE_PROGRESS");
       
       // For this demo we'll analyze all results at once
       // In a real implementation, you would process in batches
       const analyzed = await batchAnalyzeWithDiscern(urls);
+      
+      updateProgress("ANALYZE_COMPLETE");
       setDiscernResults(analyzed);
       
       // Show toast for analysis completed
@@ -56,6 +82,16 @@ const Index = () => {
         title: "Análise DISCERN concluída",
         description: `${analyzed.length} resultados foram analisados com sucesso.`,
       });
+      
+      updateProgress("COMPLETE");
+      
+      // Pequeno atraso antes de remover a barra de progresso
+      setTimeout(() => {
+        setIsSearching(false);
+        setProgressStage("");
+        setProgressPercent(0);
+      }, 500);
+      
     } catch (error) {
       console.error("Search error:", error);
       toast({
@@ -63,8 +99,9 @@ const Index = () => {
         description: "Ocorreu um erro ao processar sua pesquisa.",
         variant: "destructive",
       });
-    } finally {
       setIsSearching(false);
+      setProgressStage("");
+      setProgressPercent(0);
     }
   };
 
@@ -93,7 +130,12 @@ const Index = () => {
             </div>
           </div>
           
-          <SearchForm onSearch={handleSearch} isLoading={isSearching} />
+          <SearchForm 
+            onSearch={handleSearch} 
+            isLoading={isSearching} 
+            progressStage={progressStage}
+            progressPercent={progressPercent}
+          />
         </div>
 
         {searchResults.length > 0 && (
