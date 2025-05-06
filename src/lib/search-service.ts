@@ -105,24 +105,30 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
   console.log(`Batch analyzing ${searchResults.length} URLs`);
   
   try {
-    // Promessas para analisar cada URL individualmente
-    const analysisPromises = searchResults.map(result => 
-      analyzeWithDiscern(result.url, result.title)
-    );
-    
-    // Processar análises em lote (5 por vez para não sobrecarregar)
-    const batchSize = 5;
+    // Processar análises em lote (1 por vez para evitar sobrecarga)
+    const batchSize = 1;
     const results: DiscernResult[] = [];
     
-    for (let i = 0; i < analysisPromises.length; i += batchSize) {
-      const batchPromises = analysisPromises.slice(i, i + batchSize);
-      console.log(`Processing batch ${i / batchSize + 1}: URLs ${i + 1} to ${Math.min(i + batchSize, analysisPromises.length)}`);
+    for (let i = 0; i < searchResults.length; i += batchSize) {
+      const batch = searchResults.slice(i, i + batchSize);
+      console.log(`Processing batch ${i / batchSize + 1}: URLs ${i + 1} to ${Math.min(i + batchSize, searchResults.length)}`);
       
-      const batchResults = await Promise.all(batchPromises);
+      // Processar cada URL no lote atual
+      for (const result of batch) {
+        try {
+          const analyzed = await analyzeWithDiscern(result.url, result.title);
+          if (analyzed) {
+            results.push(analyzed);
+          }
+        } catch (error) {
+          console.error(`Failed to analyze ${result.url}:`, error);
+        }
+      }
       
-      // Filtrar resultados nulos (em caso de erro)
-      const validResults = batchResults.filter(result => result !== null) as DiscernResult[];
-      results.push(...validResults);
+      // Pequena pausa entre os lotes para não sobrecarregar
+      if (i + batchSize < searchResults.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
     
     console.log(`Completed analysis of ${results.length}/${searchResults.length} URLs`);

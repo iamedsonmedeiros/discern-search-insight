@@ -66,43 +66,80 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
   });
 
   try {
-    // Criar um thread
-    const thread = await openai.beta.threads.create();
-    
-    // Adicionar uma mensagem ao thread
-    await openai.beta.threads.messages.create(thread.id, {
-      role: "user",
-      content: `Analise o seguinte conteúdo de saúde usando o método DISCERN:
-      
-      URL: ${url}
-      Título: ${title}
-      
-      CONTEÚDO:
-      ${content}
-      
-      Forneça sua análise seguindo os critérios DISCERN para avaliação de informações de saúde. Retorne o resultado em formato JSON com:
-      1. Uma pontuação numérica (1-5) para cada um dos 15 critérios DISCERN
-      2. Uma justificativa para cada pontuação
-      3. Uma pontuação total somando todas as pontuações (máximo 75 pontos)
-      4. Observações gerais sobre o conteúdo analisado
-      5. Classificação do tipo de conteúdo (HTML, PDF, vídeo, etc.)
-      
-      IMPORTANTE: Retorne APENAS o objeto JSON sem explicações adicionais.`
+    // Criar um thread - Usando a v2 da API de Assistentes
+    const thread = await openai.beta.threads.create({}, {
+      headers: {
+        'OpenAI-Beta': 'assistants=v2'
+      }
     });
     
-    // Executar o assistente
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: OPENAI_ASSISTANT_ID
-    });
+    // Adicionar uma mensagem ao thread - Usando a v2 da API de Assistentes
+    await openai.beta.threads.messages.create(
+      thread.id, 
+      {
+        role: "user",
+        content: `Analise o seguinte conteúdo de saúde usando o método DISCERN:
+        
+        URL: ${url}
+        Título: ${title}
+        
+        CONTEÚDO:
+        ${content}
+        
+        Forneça sua análise seguindo os critérios DISCERN para avaliação de informações de saúde. Retorne o resultado em formato JSON com:
+        1. Uma pontuação numérica (1-5) para cada um dos 15 critérios DISCERN
+        2. Uma justificativa para cada pontuação
+        3. Uma pontuação total somando todas as pontuações (máximo 75 pontos)
+        4. Observações gerais sobre o conteúdo analisado
+        5. Classificação do tipo de conteúdo (HTML, PDF, vídeo, etc.)
+        
+        IMPORTANTE: Retorne APENAS o objeto JSON sem explicações adicionais.`
+      },
+      {
+        headers: {
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      }
+    );
     
-    // Aguardar a conclusão da execução
-    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    // Executar o assistente - Usando a v2 da API de Assistentes
+    const run = await openai.beta.threads.runs.create(
+      thread.id,
+      {
+        assistant_id: OPENAI_ASSISTANT_ID
+      },
+      {
+        headers: {
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      }
+    );
+    
+    // Aguardar a conclusão da execução - Usando a v2 da API de Assistentes
+    let runStatus = await openai.beta.threads.runs.retrieve(
+      thread.id, 
+      run.id,
+      {
+        headers: {
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      }
+    );
+    
     let attempts = 0;
     const maxAttempts = 60; // Limitar a 10 minutos de espera
     
     while (runStatus.status !== "completed" && runStatus.status !== "failed" && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 10000)); // Aguardar 10 segundos
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      runStatus = await openai.beta.threads.runs.retrieve(
+        thread.id, 
+        run.id,
+        {
+          headers: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
+        }
+      );
       attempts++;
       console.log(`Aguardando análise: ${runStatus.status} (tentativa ${attempts}/${maxAttempts})`);
     }
@@ -111,8 +148,15 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
       throw new Error(`Análise não concluída. Status: ${runStatus.status}`);
     }
     
-    // Obter as mensagens resultantes
-    const messages = await openai.beta.threads.messages.list(thread.id);
+    // Obter as mensagens resultantes - Usando a v2 da API de Assistentes
+    const messages = await openai.beta.threads.messages.list(
+      thread.id,
+      {
+        headers: {
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      }
+    );
     
     // Encontrar a resposta do assistente (última mensagem)
     const assistantMessages = messages.data
