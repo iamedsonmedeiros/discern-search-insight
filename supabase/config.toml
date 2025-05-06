@@ -3,3 +3,6 @@ project_id = "xcejjyetzjncyefjqwod"
 
 [functions.google-search]
 verify_jwt = false
+
+[functions.discern-analysis]
+verify_jwt = false

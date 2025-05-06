@@ -17,9 +17,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 // Estágios do processo de busca e análise
 const SEARCH_STAGES = {
   SEARCH: { name: "Buscando resultados...", percent: 20 },
-  ANALYZE_START: { name: "Iniciando análise DISCERN...", percent: 40 },
-  ANALYZE_PROGRESS: { name: "Analisando conteúdo...", percent: 60 },
-  ANALYZE_COMPLETE: { name: "Finalizando análise...", percent: 80 },
+  ANALYZE_START: { name: "Iniciando análise DISCERN...", percent: 30 },
+  ANALYZE_PROGRESS: { name: "Analisando conteúdo...", percent: 50 },
+  ANALYZE_MID: { name: "Processando análises...", percent: 70 },
+  ANALYZE_COMPLETE: { name: "Finalizando análise...", percent: 90 },
   COMPLETE: { name: "Concluído!", percent: 100 }
 };
 
@@ -30,6 +31,7 @@ const Index = () => {
   const [searchMetadata, setSearchMetadata] = useState<SearchMetadata | null>(null);
   const [progressStage, setProgressStage] = useState<string>("");
   const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [currentAnalysis, setCurrentAnalysis] = useState<string>("");
   const { toast } = useToast();
 
   const updateProgress = (stage: keyof typeof SEARCH_STAGES) => {
@@ -41,6 +43,7 @@ const Index = () => {
     setIsSearching(true);
     setSearchResults([]);
     setDiscernResults([]);
+    setCurrentAnalysis("");
     updateProgress("SEARCH");
     
     try {
@@ -63,24 +66,55 @@ const Index = () => {
         description: `Encontrados ${results.length} resultados para "${keyword}"`,
       });
       
-      // Step 2: Analyze with DISCERN (in batches if many results)
+      // Step 2: Analyze with DISCERN (in batches)
       updateProgress("ANALYZE_START");
-      const urls = results.map(result => result.url);
       
-      // Atualizar o progresso para simular o progresso da análise
-      updateProgress("ANALYZE_PROGRESS");
+      // Analisar cada resultado e ir atualizando o estado
+      const analyzedResults: DiscernResult[] = [];
       
-      // For this demo we'll analyze all results at once
-      // In a real implementation, you would process in batches
-      const analyzed = await batchAnalyzeWithDiscern(urls);
+      // Processar em lotes de 5
+      const batchSize = 5;
       
+      for (let i = 0; i < results.length; i += batchSize) {
+        const batch = results.slice(i, i + batchSize);
+        
+        // Atualizar o progresso para mostrar qual lote está sendo processado
+        updateProgress("ANALYZE_PROGRESS");
+        setCurrentAnalysis(`Analisando resultados ${i + 1} a ${Math.min(i + batchSize, results.length)} de ${results.length}...`);
+        
+        // Processar o lote atual
+        const batchPromises = batch.map(result => {
+          return batchAnalyzeWithDiscern([result])
+            .then(analyzed => {
+              if (analyzed && analyzed.length > 0) {
+                // Adicionar ao array de resultados e atualizar o estado
+                analyzedResults.push(analyzed[0]);
+                setDiscernResults([...analyzedResults]);
+                return analyzed[0];
+              }
+              return null;
+            })
+            .catch(error => {
+              console.error(`Failed to analyze ${result.url}:`, error);
+              return null;
+            });
+        });
+        
+        // Aguardar o processamento do lote atual
+        await Promise.all(batchPromises);
+        
+        // Atualizar o progresso
+        const progress = Math.min(30 + Math.round(((i + batchSize) / results.length) * 50), 80);
+        setProgressPercent(progress);
+      }
+      
+      // Atualização final
       updateProgress("ANALYZE_COMPLETE");
-      setDiscernResults(analyzed);
       
       // Show toast for analysis completed
       toast({
         title: "Análise DISCERN concluída",
-        description: `${analyzed.length} resultados foram analisados com sucesso.`,
+        description: `${analyzedResults.length} resultados foram analisados com sucesso.`,
       });
       
       updateProgress("COMPLETE");
@@ -90,18 +124,20 @@ const Index = () => {
         setIsSearching(false);
         setProgressStage("");
         setProgressPercent(0);
+        setCurrentAnalysis("");
       }, 500);
       
     } catch (error) {
       console.error("Search error:", error);
       toast({
         title: "Erro na pesquisa",
-        description: "Ocorreu um erro ao processar sua pesquisa.",
+        description: `Ocorreu um erro ao processar sua pesquisa: ${error.message || "erro desconhecido"}`,
         variant: "destructive",
       });
       setIsSearching(false);
       setProgressStage("");
       setProgressPercent(0);
+      setCurrentAnalysis("");
     }
   };
 
@@ -133,7 +169,7 @@ const Index = () => {
           <SearchForm 
             onSearch={handleSearch} 
             isLoading={isSearching} 
-            progressStage={progressStage}
+            progressStage={currentAnalysis || progressStage}
             progressPercent={progressPercent}
           />
         </div>
