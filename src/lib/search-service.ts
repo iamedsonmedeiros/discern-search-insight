@@ -92,7 +92,19 @@ export async function analyzeWithDiscern(url: string, title: string): Promise<Di
       throw error;
     }
     
-    console.log(`Analysis complete for ${url}`);
+    // Verificar se há erro na resposta
+    if (data && data.error) {
+      console.error("Error in discern-analysis response:", data.error);
+      throw new Error(data.error);
+    }
+    
+    // Verificar se o formato da resposta é válido
+    if (!data || !data.title || !data.url) {
+      console.error("Unexpected response format:", data);
+      throw new Error("Formato de resposta inválido da análise DISCERN");
+    }
+    
+    console.log(`Analysis complete for ${url} with score: ${data.totalScore}`);
     return data;
   } catch (error) {
     console.error(`Error analyzing URL ${url}:`, error);
@@ -108,21 +120,30 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
     // Processar análises uma por vez para evitar sobrecarregar a API
     const results: DiscernResult[] = [];
     
-    for (let i = 0; i < searchResults.length; i++) {
-      const result = searchResults[i];
-      console.log(`Processing URL ${i + 1}/${searchResults.length}: ${result.url}`);
+    // Limitar a 5 URLs para evitar sobrecarregar a API e melhorar a UX
+    const urlsToProcess = searchResults.slice(0, 5);
+    console.log(`Processando ${urlsToProcess.length} URLs em lotes pequenos...`);
+    
+    for (let i = 0; i < urlsToProcess.length; i++) {
+      const result = urlsToProcess[i];
+      console.log(`Processando URL ${i + 1}/${urlsToProcess.length}: ${result.url}`);
       
       try {
-        // Adicionar uma pausa maior entre as análises
+        // Adicionar uma pausa maior entre as análises (7 segundos)
         if (i > 0) {
-          console.log("Pausing for 5 seconds before next analysis...");
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          console.log("Pausing for 7 seconds before next analysis...");
+          await new Promise(resolve => setTimeout(resolve, 7000));
         }
         
         const analyzed = await analyzeWithDiscern(result.url, result.title);
         if (analyzed) {
-          results.push(analyzed);
-          console.log(`✅ Análise concluída com sucesso para ${result.url}, pontuação: ${analyzed.totalScore}`);
+          // Validar se a pontuação está presente (não zero, não vazio)
+          if (analyzed.totalScore > 0 && analyzed.scores && analyzed.scores.length > 0) {
+            results.push(analyzed);
+            console.log(`✅ Análise concluída com sucesso para ${result.url}, pontuação: ${analyzed.totalScore}`);
+          } else {
+            console.warn(`⚠️ Análise retornou dados incompletos para ${result.url}`);
+          }
         } else {
           console.warn(`⚠️ Não foi possível analisar ${result.url}`);
         }
@@ -132,7 +153,7 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
       }
     }
     
-    console.log(`Completed analysis of ${results.length}/${searchResults.length} URLs`);
+    console.log(`Completed analysis of ${results.length}/${urlsToProcess.length} URLs`);
     return results;
   } catch (error) {
     console.error("Error in batchAnalyzeWithDiscern:", error);

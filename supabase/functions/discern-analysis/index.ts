@@ -52,93 +52,180 @@ async function extractUrlContent(url: string): Promise<string> {
   }
 }
 
-// Função para analisar o conteúdo com o método DISCERN usando OpenAI
-async function analyzeWithDiscern(content: string, title: string, url: string): Promise<any> {
-  if (!OPENAI_API_KEY || !OPENAI_ASSISTANT_ID) {
-    throw new Error("Chaves de API OpenAI ou ID do assistente não configurados");
+// Função alternativa para análise direta com a OpenAI sem o Assistants API
+async function analyzeWithOpenAI(content: string, title: string, url: string): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("API Key da OpenAI não configurada");
   }
   
-  console.log(`Analisando conteúdo com OpenAI: ${title.substring(0, 30)}...`);
+  console.log(`Analisando conteúdo com OpenAI Chat API: ${title.substring(0, 30)}...`);
   
   const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
   });
 
   try {
-    // Criar um thread com o cabeçalho explícito para v2
-    const thread = await openai.beta.threads.create(
-      {},
-      {
-        headers: {
-          'OpenAI-Beta': 'assistants=v2'
+    // Usar completions direto em vez do assistants API
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system", 
+          content: `Você é um avaliador especializado que analisa informações de saúde usando o método DISCERN.
+                   O método DISCERN avalia a qualidade de informações de saúde através de 15 critérios,
+                   pontuados de 1 (baixa qualidade) a 5 (alta qualidade).`
+        },
+        {
+          role: "user", 
+          content: `Analise o seguinte conteúdo de saúde usando o método DISCERN:
+          
+          URL: ${url}
+          Título: ${title}
+          
+          CONTEÚDO:
+          ${content}
+          
+          Forneça sua análise seguindo os critérios DISCERN para avaliação de informações de saúde. Retorne o resultado em formato JSON com:
+          1. Uma pontuação numérica (1-5) para cada um dos 15 critérios DISCERN
+          2. Uma justificativa para cada pontuação
+          3. Uma pontuação total somando todas as pontuações (máximo 75 pontos)
+          4. Observações gerais sobre o conteúdo analisado
+          5. Classificação do tipo de conteúdo (HTML, PDF, vídeo, etc.)
+          
+          IMPORTANTE: Retorne APENAS o objeto JSON sem explicações adicionais. O JSON deve seguir essa estrutura exata:
+          {
+            "scores": [
+              {"criteriaId": 1, "score": 3, "justification": "Justificativa para o critério 1"},
+              {"criteriaId": 2, "score": 4, "justification": "Justificativa para o critério 2"},
+              ...e assim por diante para todos os 15 critérios
+            ],
+            "totalScore": 45,
+            "observations": "Observações gerais sobre o conteúdo",
+            "type": "HTML"
+          }`
         }
-      }
-    );
+      ],
+      temperature: 0.2, // Baixa temperatura para resultados consistentes
+      response_format: { type: "json_object" }, // Forçar resposta em JSON
+    });
     
-    // Adicionar uma mensagem ao thread com o cabeçalho v2
-    await openai.beta.threads.messages.create(
-      thread.id, 
-      {
-        role: "user",
-        content: `Analise o seguinte conteúdo de saúde usando o método DISCERN:
-        
-        URL: ${url}
-        Título: ${title}
-        
-        CONTEÚDO:
-        ${content}
-        
-        Forneça sua análise seguindo os critérios DISCERN para avaliação de informações de saúde. Retorne o resultado em formato JSON com:
-        1. Uma pontuação numérica (1-5) para cada um dos 15 critérios DISCERN
-        2. Uma justificativa para cada pontuação
-        3. Uma pontuação total somando todas as pontuações (máximo 75 pontos)
-        4. Observações gerais sobre o conteúdo analisado
-        5. Classificação do tipo de conteúdo (HTML, PDF, vídeo, etc.)
-        
-        IMPORTANTE: Retorne APENAS o objeto JSON sem explicações adicionais.`
-      },
-      {
-        headers: {
-          'OpenAI-Beta': 'assistants=v2'
+    // Extrair o texto da resposta
+    const responseContent = completion.choices[0].message.content;
+    
+    if (!responseContent) {
+      throw new Error("Resposta vazia da OpenAI");
+    }
+    
+    try {
+      // Fazer parse do JSON
+      const result = JSON.parse(responseContent);
+      
+      // Validar se o resultado tem a estrutura esperada
+      if (!result.scores || !result.totalScore) {
+        throw new Error("Estrutura de resposta inválida");
+      }
+      
+      console.log("Análise DISCERN concluída com sucesso");
+      
+      // Garantir que o resultado tenha um formato consistente
+      return {
+        url: url,
+        title: title || url,
+        type: result.type || "HTML",
+        totalScore: result.totalScore || 0,
+        scores: result.scores || [],
+        observations: result.observations || ""
+      };
+    } catch (parseError) {
+      console.error("Erro ao processar JSON da resposta:", parseError);
+      console.error("Resposta recebida:", responseContent);
+      throw new Error("Falha ao processar resultado da análise");
+    }
+  } catch (error) {
+    console.error("Erro na análise com OpenAI:", error);
+    throw error;
+  }
+}
+
+// Função para analisar o conteúdo com o método DISCERN usando OpenAI
+async function analyzeWithDiscern(content: string, title: string, url: string): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("API Key da OpenAI não configurada");
+  }
+
+  try {
+    // Tentar o método direto primeiro (mais confiável)
+    return await analyzeWithOpenAI(content, title, url);
+  } catch (directError) {
+    console.error("Erro no método direto, tentando fallback:", directError);
+    
+    // Se o método direto falhar e não tivermos ID do assistente, não podemos continuar
+    if (!OPENAI_ASSISTANT_ID) {
+      throw new Error("ID do Assistente OpenAI não configurado e método direto falhou");
+    }
+    
+    console.log("Tentando método assistente como fallback...");
+    
+    // Fallback para o método do assistente
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY
+    });
+
+    try {
+      // Criar um thread com o cabeçalho explícito para v2
+      const thread = await openai.beta.threads.create(
+        {},
+        {
+          headers: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
         }
-      }
-    );
-    
-    // Executar o assistente com o cabeçalho v2
-    const run = await openai.beta.threads.runs.create(
-      thread.id,
-      {
-        assistant_id: OPENAI_ASSISTANT_ID
-      },
-      {
-        headers: {
-          'OpenAI-Beta': 'assistants=v2'
+      );
+      
+      // Adicionar uma mensagem ao thread com o cabeçalho v2
+      await openai.beta.threads.messages.create(
+        thread.id, 
+        {
+          role: "user",
+          content: `Analise o seguinte conteúdo de saúde usando o método DISCERN:
+          
+          URL: ${url}
+          Título: ${title}
+          
+          CONTEÚDO:
+          ${content}
+          
+          Forneça sua análise seguindo os critérios DISCERN para avaliação de informações de saúde. Retorne o resultado em formato JSON com:
+          1. Uma pontuação numérica (1-5) para cada um dos 15 critérios DISCERN
+          2. Uma justificativa para cada pontuação
+          3. Uma pontuação total somando todas as pontuações (máximo 75 pontos)
+          4. Observações gerais sobre o conteúdo analisado
+          5. Classificação do tipo de conteúdo (HTML, PDF, vídeo, etc.)
+          
+          IMPORTANTE: Retorne APENAS o objeto JSON sem explicações adicionais.`
+        },
+        {
+          headers: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
         }
-      }
-    );
-    
-    // Aguardar a conclusão da execução com o cabeçalho v2
-    let runStatus = await openai.beta.threads.runs.retrieve(
-      thread.id, 
-      run.id,
-      {
-        headers: {
-          'OpenAI-Beta': 'assistants=v2'
+      );
+      
+      // Executar o assistente com o cabeçalho v2
+      const run = await openai.beta.threads.runs.create(
+        thread.id,
+        {
+          assistant_id: OPENAI_ASSISTANT_ID
+        },
+        {
+          headers: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
         }
-      }
-    );
-    
-    let attempts = 0;
-    const maxAttempts = 60; // Limitar a 10 minutos de espera (10s * 60)
-    
-    while (
-      (runStatus.status === "in_progress" || 
-       runStatus.status === "queued" || 
-       runStatus.status === "requires_action") && 
-      attempts < maxAttempts
-    ) {
-      await new Promise(resolve => setTimeout(resolve, 10000)); // Aguardar 10 segundos
-      runStatus = await openai.beta.threads.runs.retrieve(
+      );
+      
+      // Aguardar a conclusão da execução com o cabeçalho v2
+      let runStatus = await openai.beta.threads.runs.retrieve(
         thread.id, 
         run.id,
         {
@@ -147,68 +234,89 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
           }
         }
       );
-      attempts++;
-      console.log(`Aguardando análise: ${runStatus.status} (tentativa ${attempts}/${maxAttempts})`);
-    }
-    
-    if (runStatus.status !== "completed") {
-      console.error(`Análise não concluída após ${attempts} tentativas. Status final: ${runStatus.status}`);
-      throw new Error(`Análise não concluída. Status: ${runStatus.status}`);
-    }
-    
-    // Obter as mensagens resultantes com o cabeçalho v2
-    const messages = await openai.beta.threads.messages.list(
-      thread.id,
-      {
-        headers: {
-          'OpenAI-Beta': 'assistants=v2'
-        }
+      
+      let attempts = 0;
+      const maxAttempts = 30; // 5 minutos (10s * 30)
+      
+      while (
+        (runStatus.status === "in_progress" || 
+         runStatus.status === "queued" || 
+         runStatus.status === "requires_action") && 
+        attempts < maxAttempts
+      ) {
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Aguardar 10 segundos
+        runStatus = await openai.beta.threads.runs.retrieve(
+          thread.id, 
+          run.id,
+          {
+            headers: {
+              'OpenAI-Beta': 'assistants=v2'
+            }
+          }
+        );
+        attempts++;
+        console.log(`Aguardando análise: ${runStatus.status} (tentativa ${attempts}/${maxAttempts})`);
       }
-    );
-    
-    // Encontrar a resposta do assistente (última mensagem)
-    const assistantMessages = messages.data
-      .filter(msg => msg.role === "assistant")
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    
-    if (assistantMessages.length === 0) {
-      throw new Error("Nenhuma resposta do assistente foi encontrada");
+      
+      if (runStatus.status !== "completed") {
+        console.error(`Análise não concluída após ${attempts} tentativas. Status final: ${runStatus.status}`);
+        throw new Error(`Análise não concluída. Status: ${runStatus.status}`);
+      }
+      
+      // Obter as mensagens resultantes com o cabeçalho v2
+      const messages = await openai.beta.threads.messages.list(
+        thread.id,
+        {
+          headers: {
+            'OpenAI-Beta': 'assistants=v2'
+          }
+        }
+      );
+      
+      // Encontrar a resposta do assistente (última mensagem)
+      const assistantMessages = messages.data
+        .filter(msg => msg.role === "assistant")
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      if (assistantMessages.length === 0) {
+        throw new Error("Nenhuma resposta do assistente foi encontrada");
+      }
+      
+      // Extrair o conteúdo JSON da resposta
+      const responseContent = assistantMessages[0].content[0];
+      if (responseContent.type !== "text") {
+        throw new Error("Resposta não está em formato de texto");
+      }
+      
+      // Tentar extrair JSON da resposta
+      const textResponse = responseContent.text.value;
+      console.log("Resposta do assistente:", textResponse.substring(0, 100) + "...");
+      
+      let jsonStart = textResponse.indexOf('{');
+      let jsonEnd = textResponse.lastIndexOf('}');
+      
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error("Não foi possível encontrar JSON na resposta");
+      }
+      
+      const jsonText = textResponse.substring(jsonStart, jsonEnd + 1);
+      const result = JSON.parse(jsonText);
+      
+      console.log("Análise DISCERN concluída com sucesso");
+      
+      // Garantir que o resultado tenha um formato consistente
+      return {
+        url: url,
+        title: title || url,
+        type: result.type || "HTML",
+        totalScore: result.totalScore || 0,
+        scores: result.scores || [],
+        observations: result.observations || ""
+      };
+    } catch (error) {
+      console.error("Erro na análise DISCERN com assistente:", error);
+      throw error;
     }
-    
-    // Extrair o conteúdo JSON da resposta
-    const responseContent = assistantMessages[0].content[0];
-    if (responseContent.type !== "text") {
-      throw new Error("Resposta não está em formato de texto");
-    }
-    
-    // Tentar extrair JSON da resposta
-    const textResponse = responseContent.text.value;
-    console.log("Resposta do assistente:", textResponse.substring(0, 100) + "...");
-    
-    let jsonStart = textResponse.indexOf('{');
-    let jsonEnd = textResponse.lastIndexOf('}');
-    
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error("Não foi possível encontrar JSON na resposta");
-    }
-    
-    const jsonText = textResponse.substring(jsonStart, jsonEnd + 1);
-    const result = JSON.parse(jsonText);
-    
-    console.log("Análise DISCERN concluída com sucesso");
-    
-    // Garantir que o resultado tenha um formato consistente
-    return {
-      url: url,
-      title: title || url,
-      type: result.type || "HTML",
-      totalScore: result.totalScore || 0,
-      scores: result.scores || [],
-      observations: result.observations || ""
-    };
-  } catch (error) {
-    console.error("Erro na análise DISCERN:", error);
-    throw error;
   }
 }
 
