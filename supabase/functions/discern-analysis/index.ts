@@ -31,7 +31,6 @@ async function extractUrlContent(url: string): Promise<string> {
       const html = await response.text();
       
       // Extrair apenas o texto visível do HTML para simplificar
-      // Isso é uma simplificação, seria melhor usar um parser HTML adequado
       const textContent = html
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
         .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
@@ -66,14 +65,17 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
   });
 
   try {
-    // Criar um thread - Usando a v2 da API de Assistentes
-    const thread = await openai.beta.threads.create({}, {
-      headers: {
-        'OpenAI-Beta': 'assistants=v2'
+    // Criar um thread com o cabeçalho explícito para v2
+    const thread = await openai.beta.threads.create(
+      {},
+      {
+        headers: {
+          'OpenAI-Beta': 'assistants=v2'
+        }
       }
-    });
+    );
     
-    // Adicionar uma mensagem ao thread - Usando a v2 da API de Assistentes
+    // Adicionar uma mensagem ao thread com o cabeçalho v2
     await openai.beta.threads.messages.create(
       thread.id, 
       {
@@ -102,7 +104,7 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
       }
     );
     
-    // Executar o assistente - Usando a v2 da API de Assistentes
+    // Executar o assistente com o cabeçalho v2
     const run = await openai.beta.threads.runs.create(
       thread.id,
       {
@@ -115,7 +117,7 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
       }
     );
     
-    // Aguardar a conclusão da execução - Usando a v2 da API de Assistentes
+    // Aguardar a conclusão da execução com o cabeçalho v2
     let runStatus = await openai.beta.threads.runs.retrieve(
       thread.id, 
       run.id,
@@ -127,9 +129,14 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
     );
     
     let attempts = 0;
-    const maxAttempts = 60; // Limitar a 10 minutos de espera
+    const maxAttempts = 60; // Limitar a 10 minutos de espera (10s * 60)
     
-    while (runStatus.status !== "completed" && runStatus.status !== "failed" && attempts < maxAttempts) {
+    while (
+      (runStatus.status === "in_progress" || 
+       runStatus.status === "queued" || 
+       runStatus.status === "requires_action") && 
+      attempts < maxAttempts
+    ) {
       await new Promise(resolve => setTimeout(resolve, 10000)); // Aguardar 10 segundos
       runStatus = await openai.beta.threads.runs.retrieve(
         thread.id, 
@@ -145,10 +152,11 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
     }
     
     if (runStatus.status !== "completed") {
+      console.error(`Análise não concluída após ${attempts} tentativas. Status final: ${runStatus.status}`);
       throw new Error(`Análise não concluída. Status: ${runStatus.status}`);
     }
     
-    // Obter as mensagens resultantes - Usando a v2 da API de Assistentes
+    // Obter as mensagens resultantes com o cabeçalho v2
     const messages = await openai.beta.threads.messages.list(
       thread.id,
       {
@@ -175,6 +183,8 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
     
     // Tentar extrair JSON da resposta
     const textResponse = responseContent.text.value;
+    console.log("Resposta do assistente:", textResponse.substring(0, 100) + "...");
+    
     let jsonStart = textResponse.indexOf('{');
     let jsonEnd = textResponse.lastIndexOf('}');
     
@@ -186,7 +196,16 @@ async function analyzeWithDiscern(content: string, title: string, url: string): 
     const result = JSON.parse(jsonText);
     
     console.log("Análise DISCERN concluída com sucesso");
-    return result;
+    
+    // Garantir que o resultado tenha um formato consistente
+    return {
+      url: url,
+      title: title || url,
+      type: result.type || "HTML",
+      totalScore: result.totalScore || 0,
+      scores: result.scores || [],
+      observations: result.observations || ""
+    };
   } catch (error) {
     console.error("Erro na análise DISCERN:", error);
     throw error;
@@ -212,21 +231,17 @@ serve(async (req) => {
     // Extrair conteúdo da URL
     const content = await extractUrlContent(url);
     
+    // Se o conteúdo não pôde ser extraído adequadamente, retornar erro
+    if (content.startsWith("Erro ao extrair conteúdo:")) {
+      throw new Error(content);
+    }
+    
     // Analisar conteúdo com DISCERN
     const discernAnalysis = await analyzeWithDiscern(content, title || url, url);
     
-    // Processar e formatar os resultados da análise
-    const formattedResult = {
-      url: url,
-      title: title || url,
-      type: discernAnalysis.type || "HTML",
-      totalScore: discernAnalysis.totalScore || 0,
-      scores: discernAnalysis.scores || [],
-      observations: discernAnalysis.observations || ""
-    };
-    
+    // Retornar resultado formatado
     return new Response(
-      JSON.stringify(formattedResult), 
+      JSON.stringify(discernAnalysis), 
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
     

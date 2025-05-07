@@ -105,29 +105,30 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
   console.log(`Batch analyzing ${searchResults.length} URLs`);
   
   try {
-    // Processar análises em lote (1 por vez para evitar sobrecarga)
-    const batchSize = 1;
+    // Processar análises uma por vez para evitar sobrecarregar a API
     const results: DiscernResult[] = [];
     
-    for (let i = 0; i < searchResults.length; i += batchSize) {
-      const batch = searchResults.slice(i, i + batchSize);
-      console.log(`Processing batch ${i / batchSize + 1}: URLs ${i + 1} to ${Math.min(i + batchSize, searchResults.length)}`);
+    for (let i = 0; i < searchResults.length; i++) {
+      const result = searchResults[i];
+      console.log(`Processing URL ${i + 1}/${searchResults.length}: ${result.url}`);
       
-      // Processar cada URL no lote atual
-      for (const result of batch) {
-        try {
-          const analyzed = await analyzeWithDiscern(result.url, result.title);
-          if (analyzed) {
-            results.push(analyzed);
-          }
-        } catch (error) {
-          console.error(`Failed to analyze ${result.url}:`, error);
+      try {
+        // Adicionar uma pausa maior entre as análises
+        if (i > 0) {
+          console.log("Pausing for 5 seconds before next analysis...");
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
-      }
-      
-      // Pequena pausa entre os lotes para não sobrecarregar
-      if (i + batchSize < searchResults.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const analyzed = await analyzeWithDiscern(result.url, result.title);
+        if (analyzed) {
+          results.push(analyzed);
+          console.log(`✅ Análise concluída com sucesso para ${result.url}, pontuação: ${analyzed.totalScore}`);
+        } else {
+          console.warn(`⚠️ Não foi possível analisar ${result.url}`);
+        }
+      } catch (error) {
+        console.error(`❌ Falha ao analisar ${result.url}:`, error);
+        // Continue para a próxima URL mesmo se uma falhar
       }
     }
     
