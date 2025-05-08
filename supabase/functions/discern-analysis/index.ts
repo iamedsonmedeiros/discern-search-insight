@@ -2,6 +2,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import OpenAI from "https://esm.sh/openai@4.20.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
+// Add ytdl-core for YouTube videos
+import ytdl from "https://esm.sh/ytdl-core@4.11.5";
 
 // Obter tokens da API e ID do assistente
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
@@ -13,11 +16,165 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Função para determinar se uma URL é de vídeo
+function isVideoUrl(url: string): boolean {
+  // Identificar URLs de plataformas de vídeo comuns
+  const videoPatterns = [
+    /youtube\.com\/watch/i,
+    /youtu\.be\//i,
+    /vimeo\.com\//i,
+    /(instagram\.com|instagr\.am)\/(?:p|reel)\//i,
+    /tiktok\.com\/@[^\/]+\/video\//i,
+    /facebook\.com\/.*\/videos\//i,
+  ];
+
+  return videoPatterns.some(pattern => pattern.test(url));
+}
+
+// Função para extrair o áudio de vídeo do YouTube
+async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
+  try {
+    console.log(`Extraindo áudio do YouTube: ${url}`);
+    
+    // Verificar se a URL é válida para o YouTube
+    if (!ytdl.validateURL(url)) {
+      console.log("URL do YouTube inválida");
+      return null;
+    }
+    
+    // Obter informações do vídeo
+    const info = await ytdl.getInfo(url);
+    
+    // Obter o formato com apenas áudio de melhor qualidade
+    const audioFormat = ytdl.chooseFormat(info.formats, { quality: 'highestaudio', filter: 'audioonly' });
+    
+    if (!audioFormat) {
+      console.log("Nenhum formato de áudio encontrado");
+      return null;
+    }
+    
+    // Baixar o áudio
+    const audioResponse = await fetch(audioFormat.url);
+    
+    if (!audioResponse.ok) {
+      throw new Error(`Falha ao baixar áudio: ${audioResponse.status}`);
+    }
+    
+    const arrayBuffer = await audioResponse.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+  } catch (error) {
+    console.error(`Erro ao extrair áudio do YouTube: ${error.message}`);
+    return null;
+  }
+}
+
+// Função para transcrever áudio usando a API do OpenAI
+async function transcribeAudio(audioBuffer: Uint8Array): Promise<string> {
+  try {
+    console.log("Iniciando transcrição de áudio com OpenAI...");
+    
+    if (!OPENAI_API_KEY) {
+      throw new Error("API Key da OpenAI não configurada");
+    }
+    
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY
+    });
+    
+    // Converter o buffer para um Blob
+    const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
+    
+    // Criar um objeto File a partir do Blob
+    const audioFile = new File([audioBlob], "audio.mp4", { type: "audio/mp4" });
+    
+    // Transcrever usando a API Whisper
+    const transcription = await openai.audio.transcriptions.create({
+      file: audioFile,
+      model: "whisper-1",
+      language: "pt", // Usar detecção automática ou especificar o idioma
+      response_format: "text"
+    });
+    
+    console.log("Transcrição concluída com sucesso");
+    return transcription.text || ""; // Retornar o texto transcrito
+  } catch (error) {
+    console.error(`Erro na transcrição do áudio: ${error.message}`);
+    return `[Erro na transcrição do áudio: ${error.message}]`;
+  }
+}
+
+// Função para extrair metadados básicos de uma página de vídeo
+async function extractVideoMetadata(url: string): Promise<{ title: string; description: string }> {
+  try {
+    console.log(`Extraindo metadados de vídeo: ${url}`);
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Falha ao buscar página: ${response.status}`);
+    }
+    
+    const html = await response.text();
+    
+    // Extrair título (tag title ou meta og:title)
+    let title = "";
+    const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i) || 
+                      html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i);
+    
+    if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].trim();
+    }
+    
+    // Extrair descrição (meta description ou og:description)
+    let description = "";
+    const descMatch = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i) || 
+                     html.match(/<meta\s+property="og:description"\s+content="([^"]+)"/i);
+    
+    if (descMatch && descMatch[1]) {
+      description = descMatch[1].trim();
+    }
+    
+    return { title, description };
+  } catch (error) {
+    console.error(`Erro ao extrair metadados de vídeo: ${error.message}`);
+    return { title: "", description: "" };
+  }
+}
+
 // Função para extrair o conteúdo de uma URL
 async function extractUrlContent(url: string): Promise<string> {
   try {
     console.log(`Extraindo conteúdo da URL: ${url}`);
     
+    // Verificar se é uma URL de vídeo
+    if (isVideoUrl(url)) {
+      console.log("Detectado URL de vídeo. Iniciando processamento especial...");
+      
+      // Extrair metadados básicos da página do vídeo
+      const metadata = await extractVideoMetadata(url);
+      
+      let content = `Título: ${metadata.title}\nDescrição: ${metadata.description}\n\n`;
+      
+      // Para URLs do YouTube, extrair e transcrever o áudio
+      if (url.includes("youtube.com") || url.includes("youtu.be")) {
+        const audioBuffer = await extractYoutubeAudio(url);
+        
+        if (audioBuffer) {
+          console.log("Áudio extraído com sucesso, iniciando transcrição...");
+          const transcription = await transcribeAudio(audioBuffer);
+          content += `Transcrição do áudio:\n${transcription}`;
+        } else {
+          content += "Não foi possível extrair o áudio para transcrição.";
+        }
+      } else {
+        // Para outros sites de vídeo, apenas informar que a transcrição não está disponível
+        content += "A transcrição de áudio para este site de vídeo ainda não é suportada.";
+      }
+      
+      return content;
+    }
+    
+    // Continuar com o processamento normal para páginas não-vídeo
     const response = await fetch(url);
     
     if (!response.ok) {

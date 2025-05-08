@@ -3,12 +3,17 @@ import React from "react";
 import { DiscernResult, discernCriteria } from "@/lib/discern-criteria";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
+import { Video, AudioLines } from "lucide-react";
+import { isVideoUrl } from "@/lib/search-service";
 
 interface ResultDetailsProps {
   result: DiscernResult;
 }
 
 const ResultDetails: React.FC<ResultDetailsProps> = ({ result }) => {
+  // Determine if the URL is from a video source
+  const isVideo = isVideoUrl(result.url);
+  
   // Group criteria by category
   const categorizedScores = {
     reliability: result.scores.filter(score => {
@@ -27,6 +32,18 @@ const ResultDetails: React.FC<ResultDetailsProps> = ({ result }) => {
 
   return (
     <div className="space-y-6">
+      {isVideo && (
+        <div className="bg-amber-50 border border-amber-100 rounded-md p-4 flex items-start gap-3">
+          <Video className="h-5 w-5 text-amber-600 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-medium text-amber-900 mb-1">Conteúdo de vídeo analisado</h4>
+            <p className="text-sm text-amber-800">
+              Este resultado contém análise de um conteúdo em vídeo. A análise inclui metadados da página e transcrição do áudio quando disponível.
+            </p>
+          </div>
+        </div>
+      )}
+      
       {result.observations && (
         <div className="bg-blue-50 border border-blue-100 rounded-md p-4">
           <h4 className="text-sm font-medium text-blue-900 mb-1">Observações</h4>

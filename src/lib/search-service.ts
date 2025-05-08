@@ -35,6 +35,20 @@ export interface DiscernResult {
   observations: string;
 }
 
+// Função para verificar se uma URL é de vídeo
+export function isVideoUrl(url: string): boolean {
+  const videoPatterns = [
+    /youtube\.com\/watch/i,
+    /youtu\.be\//i,
+    /vimeo\.com\//i,
+    /(instagram\.com|instagr\.am)\/(?:p|reel)\//i,
+    /tiktok\.com\/@[^\/]+\/video\//i,
+    /facebook\.com\/.*\/videos\//i,
+  ];
+
+  return videoPatterns.some(pattern => pattern.test(url));
+}
+
 // Função de busca que usa a Edge Function do Supabase
 export async function searchWithKeyword(keyword: string, quantity: number = 10): Promise<SearchResultItem[]> {
   console.log(`Searching for "${keyword}" with quantity: ${quantity}`);
@@ -82,6 +96,12 @@ export async function analyzeWithDiscern(url: string, title: string): Promise<Di
   console.log(`Analyzing URL: ${url}`);
   
   try {
+    // Verificar se é um vídeo para informar ao usuário
+    const isVideo = isVideoUrl(url);
+    if (isVideo) {
+      console.log(`Detected video URL: ${url}. Processing will include video analysis.`);
+    }
+    
     // Chamar a Edge Function do Supabase para análise DISCERN
     const { data, error } = await supabase.functions.invoke("discern-analysis", {
       body: { url, title },
