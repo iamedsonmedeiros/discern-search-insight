@@ -51,11 +51,11 @@ const Index = () => {
       const results = await searchWithKeyword(keyword, quantity);
       setSearchResults(results);
       
-      // Se houver metadados de busca disponíveis
+      // Se houver metadados de busca disponíveis e o número recebido for menor que o solicitado
       const metadata = results.length < quantity ? {
         requested: quantity,
         received: results.length,
-        message: `A API retornou menos resultados (${results.length}) do que foi solicitado (${quantity})`
+        message: `O Google retornou menos resultados (${results.length}) do que foi solicitado (${quantity}). Isso é normal e pode acontecer dependendo da consulta.`
       } : null;
       
       setSearchMetadata(metadata);

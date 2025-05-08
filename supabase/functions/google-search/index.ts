@@ -81,7 +81,7 @@ serve(async (req) => {
           requested: quantity,
           adjusted: adjustedQuantity,
           received: 0,
-          message: "No results found for this query"
+          message: "Nenhum resultado encontrado para esta consulta"
         }
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -102,7 +102,15 @@ serve(async (req) => {
     
     console.log(`Mapped ${returnedResults} results for "${keyword}" (adjusted request: ${adjustedQuantity}, API returned: ${receivedResults})`);
     
-    // Atualização do metadata para incluir a quantidade ajustada
+    // Mensagens aprimoradas para explicar as diferenças entre quantidade solicitada e recebida
+    let message = "";
+    if (returnedResults < quantity) {
+      message = `Foram solicitados ${quantity} resultados, mas a API do Google retornou apenas ${receivedResults} resultados disponíveis para esta consulta.`;
+    } else {
+      message = `${returnedResults} resultados encontrados conforme solicitado`;
+    }
+    
+    // Atualização do metadata para incluir a quantidade ajustada e mensagem aprimorada
     return new Response(JSON.stringify({
       results: results,
       metadata: {
@@ -110,9 +118,7 @@ serve(async (req) => {
         adjusted: adjustedQuantity,
         received: receivedResults,
         returned: returnedResults,
-        message: returnedResults < quantity ? 
-          `Solicitados ${quantity} resultados (ajustado para ${adjustedQuantity}), mas mesmo assim a API retornou apenas ${receivedResults}` : 
-          `${returnedResults} resultados encontrados conforme solicitado`
+        message: message
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
