@@ -140,8 +140,8 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
     // Processar análises uma por vez para evitar sobrecarregar a API
     const results: DiscernResult[] = [];
     
-    // Limitar a 5 URLs para evitar sobrecarregar a API e melhorar a UX
-    const urlsToProcess = searchResults.slice(0, 5);
+    // Remover a limitação de 5 URLs para processar todos os resultados
+    const urlsToProcess = searchResults;
     console.log(`Processando ${urlsToProcess.length} URLs em lotes pequenos...`);
     
     for (let i = 0; i < urlsToProcess.length; i++) {
