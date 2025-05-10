@@ -33,14 +33,20 @@ async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
       throw new Error("URL do YouTube inválida");
     }
     
-    // Implementar retry logic com exponential backoff
     const maxRetries = 3;
     let attempt = 0;
     let lastError: Error | null = null;
     
     while (attempt < maxRetries) {
       try {
-        const info = await ytdl.getInfo(url);
+        const info = await ytdl.getInfo(url, {
+          requestOptions: {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+          }
+        });
+        
         const audioFormat = ytdl.chooseFormat(info.formats, { 
           quality: 'highestaudio', 
           filter: 'audioonly' 
@@ -50,7 +56,11 @@ async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
           throw new Error("Nenhum formato de áudio disponível");
         }
         
-        const audioResponse = await fetch(audioFormat.url);
+        const audioResponse = await fetch(audioFormat.url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          }
+        });
         
         if (!audioResponse.ok) {
           throw new Error(`Falha ao baixar áudio: ${audioResponse.status}`);
@@ -63,7 +73,6 @@ async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
         lastError = retryError as Error;
         attempt++;
         if (attempt < maxRetries) {
-          // Exponential backoff: 1s, 2s, 4s
           const delay = Math.pow(2, attempt - 1) * 1000;
           console.log(`Tentativa ${attempt} falhou, aguardando ${delay}ms antes de tentar novamente`);
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -111,14 +120,25 @@ async function transcribeAudio(audioBuffer: Uint8Array): Promise<string> {
 async function extractVideoMetadata(url: string): Promise<{ title: string; description: string }> {
   try {
     if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      const info = await ytdl.getInfo(url);
+      const info = await ytdl.getInfo(url, {
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          }
+        }
+      });
       return {
         title: info.videoDetails.title || "",
         description: info.videoDetails.description || ""
       };
     }
     
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
     if (!response.ok) {
       throw new Error(`Falha ao buscar página: ${response.status}`);
     }
@@ -178,7 +198,12 @@ async function extractUrlContent(url: string): Promise<string> {
       return content;
     }
     
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
     if (!response.ok) {
       throw new Error(`Falha ao buscar conteúdo: ${response.status}`);
     }
@@ -277,18 +302,40 @@ serve(async (req) => {
     
     console.log(`Iniciando análise para: ${url}`);
     
-    const content = await extractUrlContent(url);
-    const analysis = await analyzeWithOpenAI(content, title || url, url);
-    
-    return new Response(
-      JSON.stringify(analysis),
-      { 
-        headers: { 
-          ...corsHeaders, 
-          "Content-Type": "application/json" 
-        } 
-      }
-    );
+    try {
+      const content = await extractUrlContent(url);
+      const analysis = await analyzeWithOpenAI(content, title || url, url);
+      
+      return new Response(
+        JSON.stringify(analysis),
+        { 
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json" 
+          } 
+        }
+      );
+    } catch (processingError) {
+      console.error("Erro no processamento:", processingError);
+      return new Response(
+        JSON.stringify({
+          error: "Erro no processamento do conteúdo",
+          details: processingError.message,
+          url,
+          title: title || url,
+          type: "ERROR",
+          totalScore: 0,
+          scores: [],
+          observations: `Falha na análise: ${processingError.message}`
+        }),
+        { 
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json" 
+          } 
+        }
+      );
+    }
   } catch (error) {
     console.error("Erro na função discern-analysis:", error);
     
