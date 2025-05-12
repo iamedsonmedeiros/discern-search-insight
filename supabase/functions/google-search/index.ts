@@ -71,6 +71,22 @@ serve(async (req) => {
     }
     
     const receivedResults = data.organic_results.length;
+    
+    // Verificar se temos resultados suficientes
+    if (receivedResults < quantity) {
+      return new Response(JSON.stringify({
+        error: "Insufficient results",
+        metadata: {
+          requested: quantity,
+          received: receivedResults,
+          message: `Número insuficiente de resultados. Solicitados: ${quantity}, Recebidos: ${receivedResults}`
+        }
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    
     const results = data.organic_results.slice(0, quantity).map((item, index) => ({
       ranking: index + 1,
       title: item.title,
@@ -78,21 +94,14 @@ serve(async (req) => {
       snippet: item.snippet || "Sem descrição disponível"
     }));
     
-    const returnedResults = results.length;
-    
-    console.log(`Mapped ${returnedResults} results for "${keyword}" (API returned: ${receivedResults})`);
-    
-    let message = returnedResults < quantity
-      ? `Foram solicitados ${quantity} resultados, mas a API do Google retornou apenas ${receivedResults} resultados disponíveis para esta consulta.`
-      : `${returnedResults} resultados encontrados conforme solicitado`;
+    console.log(`Mapped ${results.length} results for "${keyword}"`);
     
     return new Response(JSON.stringify({
       results: results,
       metadata: {
         requested: quantity,
         received: receivedResults,
-        returned: returnedResults,
-        message: message
+        message: `${results.length} resultados encontrados conforme solicitado`
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }

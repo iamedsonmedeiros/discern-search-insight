@@ -1,4 +1,3 @@
-
 import { DiscernCriteria } from "./discern-criteria";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -54,9 +53,12 @@ export async function searchWithKeyword(keyword: string, quantity: number = 10):
   console.log(`Searching for "${keyword}" with quantity: ${quantity}`);
   
   try {
+    // Ajustar a quantidade para garantir o número exato de resultados
+    const adjustedQuantity = quantity + 1;
+    
     // Chamar a Edge Function do Supabase para fazer a busca real no Google
     const { data, error } = await supabase.functions.invoke("google-search", {
-      body: { keyword, quantity },
+      body: { keyword, quantity: adjustedQuantity },
     });
     
     if (error) {
@@ -68,23 +70,36 @@ export async function searchWithKeyword(keyword: string, quantity: number = 10):
     if (data && data.results) {
       console.log(`Received ${data.results.length || 0} search results`);
       
+      // Garantir exatamente a quantidade solicitada
+      const results = data.results.slice(0, quantity);
+      
       // Mostrar metadados da resposta se disponíveis
       if (data.metadata) {
         console.log(`Search metadata: Requested ${data.metadata.requested}, Received ${data.metadata.received}`);
         console.log(`Message: ${data.metadata.message}`);
       }
       
-      return data.results || [];
+      if (results.length < quantity) {
+        throw new Error(`Número insuficiente de resultados. Solicitados: ${quantity}, Recebidos: ${results.length}`);
+      }
+      
+      return results;
     }
     
     // Compatibilidade com o formato antigo (caso ainda receba apenas a array)
     if (Array.isArray(data)) {
       console.log(`Received ${data.length || 0} search results (old format)`);
-      return data || [];
+      const results = data.slice(0, quantity);
+      
+      if (results.length < quantity) {
+        throw new Error(`Número insuficiente de resultados. Solicitados: ${quantity}, Recebidos: ${results.length}`);
+      }
+      
+      return results;
     }
     
     console.error("Unexpected response format:", data);
-    return [];
+    throw new Error("Formato de resposta inesperado");
   } catch (error) {
     console.error("Error in searchWithKeyword:", error);
     throw error;
@@ -104,7 +119,7 @@ export async function analyzeWithDiscern(url: string, title: string): Promise<Di
     
     // Chamar a Edge Function do Supabase para análise DISCERN
     const { data, error } = await supabase.functions.invoke("discern-analysis", {
-      body: { url, title },
+      body: { url, title, isVideo },
     });
     
     if (error) {
