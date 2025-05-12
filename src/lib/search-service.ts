@@ -143,7 +143,7 @@ export async function analyzeWithDiscern(url: string, title: string): Promise<Di
     return data;
   } catch (error) {
     console.error(`Error analyzing URL ${url}:`, error);
-    return null;
+    throw error; // Changed to throw error instead of returning null
   }
 }
 
@@ -154,6 +154,7 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
   try {
     // Processar análises uma por vez para evitar sobrecarregar a API
     const results: DiscernResult[] = [];
+    const errors: { url: string; error: string }[] = [];
     
     // Remover a limitação de 5 URLs para processar todos os resultados
     const urlsToProcess = searchResults;
@@ -177,18 +178,29 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
             results.push(analyzed);
             console.log(`✅ Análise concluída com sucesso para ${result.url}, pontuação: ${analyzed.totalScore}`);
           } else {
-            console.warn(`⚠️ Análise retornou dados incompletos para ${result.url}`);
+            const error = `Análise retornou dados incompletos`;
+            errors.push({ url: result.url, error });
+            console.warn(`⚠️ ${error} para ${result.url}`);
           }
-        } else {
-          console.warn(`⚠️ Não foi possível analisar ${result.url}`);
         }
       } catch (error) {
+        errors.push({ url: result.url, error: error.message });
         console.error(`❌ Falha ao analisar ${result.url}:`, error);
         // Continue para a próxima URL mesmo se uma falhar
       }
     }
     
+    // Log errors if any
+    if (errors.length > 0) {
+      console.error(`Failed to analyze ${errors.length} URLs:`, errors);
+    }
+    
     console.log(`Completed analysis of ${results.length}/${urlsToProcess.length} URLs`);
+    
+    if (results.length === 0) {
+      throw new Error("Nenhuma análise foi concluída com sucesso");
+    }
+    
     return results;
   } catch (error) {
     console.error("Error in batchAnalyzeWithDiscern:", error);
