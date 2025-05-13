@@ -47,10 +47,12 @@ async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
           }
         });
         
-        const audioFormat = ytdl.chooseFormat(info.formats, { 
-          quality: 'highestaudio', 
-          filter: 'audioonly' 
-        });
+        // Get only the audio format with the smallest file size
+        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+        const audioFormat = audioFormats.sort((a, b) => 
+          (a.contentLength ? parseInt(a.contentLength) : Infinity) - 
+          (b.contentLength ? parseInt(b.contentLength) : Infinity)
+        )[0];
         
         if (!audioFormat) {
           throw new Error("Nenhum formato de áudio disponível");
@@ -185,7 +187,7 @@ async function extractUrlContent(url: string): Promise<string> {
             const transcription = await transcribeAudio(audioBuffer);
             content += `Transcrição:\n${transcription}`;
           } else {
-            content += "Não foi possível extrair o áudio para transcrição.";
+            content += "Não foi possível extrair o áudio para transcrição. Análise baseada apenas nos metadados do vídeo.";
           }
         } catch (audioError) {
           console.error("Erro no processamento de áudio:", audioError);
@@ -193,6 +195,10 @@ async function extractUrlContent(url: string): Promise<string> {
         }
       } else {
         content += "Transcrição não disponível para esta plataforma de vídeo.";
+      }
+      
+      if (!content.trim()) {
+        throw new Error("Não foi possível extrair conteúdo do vídeo");
       }
       
       return content;
@@ -219,10 +225,14 @@ async function extractUrlContent(url: string): Promise<string> {
         .replace(/\s+/g, " ")
         .trim();
       
+      if (!textContent) {
+        throw new Error("Conteúdo extraído está vazio");
+      }
+      
       return textContent.substring(0, 8000);
     }
     
-    return `Tipo de conteúdo não suportado: ${contentType}`;
+    throw new Error(`Tipo de conteúdo não suportado: ${contentType}`);
   } catch (error) {
     console.error(`Erro ao extrair conteúdo: ${error.message}`);
     throw new Error(`Falha ao extrair conteúdo: ${error.message}`);
@@ -241,43 +251,65 @@ async function analyzeWithOpenAI(content: string, title: string, url: string): P
       apiKey: OPENAI_API_KEY
     });
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        {
-          role: "system",
-          content: `Você é um avaliador especializado que analisa informações de saúde usando o método DISCERN.`
-        },
-        {
-          role: "user",
-          content: `Analise o seguinte conteúdo usando o método DISCERN:
-          
-          URL: ${url}
-          Título: ${title}
-          
-          CONTEÚDO:
-          ${content}`
-        }
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" }
-    });
+    const maxRetries = 3;
+    let attempt = 0;
+    let lastError: Error | null = null;
     
-    const responseContent = completion.choices[0].message.content;
-    if (!responseContent) {
-      throw new Error("Resposta vazia da OpenAI");
+    while (attempt < maxRetries) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: `Você é um avaliador especializado que analisa informações de saúde usando o método DISCERN.`
+            },
+            {
+              role: "user",
+              content: `Analise o seguinte conteúdo usando o método DISCERN:
+              
+              URL: ${url}
+              Título: ${title}
+              
+              CONTEÚDO:
+              ${content}`
+            }
+          ],
+          temperature: 0.2,
+          response_format: { type: "json_object" }
+        });
+        
+        const responseContent = completion.choices[0].message.content;
+        if (!responseContent) {
+          throw new Error("Resposta vazia da OpenAI");
+        }
+        
+        const result = JSON.parse(responseContent);
+        
+        if (!result.totalScore || !Array.isArray(result.scores)) {
+          throw new Error("Resposta da OpenAI em formato inválido");
+        }
+        
+        return {
+          url,
+          title: title || url,
+          type: result.type || "HTML",
+          totalScore: result.totalScore || 0,
+          scores: result.scores || [],
+          observations: result.observations || ""
+        };
+      } catch (retryError) {
+        lastError = retryError as Error;
+        attempt++;
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.log(`Tentativa ${attempt} falhou, aguardando ${delay}ms antes de tentar novamente`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
     
-    const result = JSON.parse(responseContent);
-    
-    return {
-      url,
-      title: title || url,
-      type: result.type || "HTML",
-      totalScore: result.totalScore || 0,
-      scores: result.scores || [],
-      observations: result.observations || ""
-    };
+    throw new Error(`Falha após ${maxRetries} tentativas: ${lastError?.message}`);
   } catch (error) {
     console.error("Erro na análise OpenAI:", error);
     throw new Error(`Falha na análise: ${error.message}`);
@@ -291,24 +323,56 @@ serve(async (req) => {
   
   try {
     if (!OPENAI_API_KEY) {
-      throw new Error("API Key da OpenAI não configurada");
+      return new Response(
+        JSON.stringify({ 
+          error: "API Key da OpenAI não configurada",
+          status: "error"
+        }),
+        { 
+          status: 500,
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json" 
+          } 
+        }
+      );
     }
     
     const { url, title } = await req.json();
     
     if (!url) {
-      throw new Error("URL é obrigatória para análise");
+      return new Response(
+        JSON.stringify({ 
+          error: "URL é obrigatória para análise",
+          status: "error"
+        }),
+        { 
+          status: 400,
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json" 
+          } 
+        }
+      );
     }
     
     console.log(`Iniciando análise para: ${url}`);
     
     try {
       const content = await extractUrlContent(url);
+      if (!content) {
+        throw new Error("Não foi possível extrair conteúdo da URL");
+      }
+      
       const analysis = await analyzeWithOpenAI(content, title || url, url);
       
       return new Response(
-        JSON.stringify(analysis),
+        JSON.stringify({
+          ...analysis,
+          status: "success"
+        }),
         { 
+          status: 200,
           headers: { 
             ...corsHeaders, 
             "Content-Type": "application/json" 
@@ -319,8 +383,8 @@ serve(async (req) => {
       console.error("Erro no processamento:", processingError);
       return new Response(
         JSON.stringify({
-          error: "Erro no processamento do conteúdo",
-          details: processingError.message,
+          error: processingError.message,
+          status: "error",
           url,
           title: title || url,
           type: "ERROR",
@@ -329,6 +393,7 @@ serve(async (req) => {
           observations: `Falha na análise: ${processingError.message}`
         }),
         { 
+          status: 500,
           headers: { 
             ...corsHeaders, 
             "Content-Type": "application/json" 
@@ -342,6 +407,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         error: error.message || "Erro desconhecido na análise",
+        status: "error",
         details: error.stack
       }),
       { 

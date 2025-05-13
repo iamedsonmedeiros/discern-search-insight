@@ -117,33 +117,48 @@ export async function analyzeWithDiscern(url: string, title: string): Promise<Di
       console.log(`Detected video URL: ${url}. Processing will include video analysis.`);
     }
     
-    // Chamar a Edge Function do Supabase para análise DISCERN
-    const { data, error } = await supabase.functions.invoke("discern-analysis", {
-      body: { url, title, isVideo },
-    });
+    const maxRetries = 3;
+    let attempt = 0;
+    let lastError: Error | null = null;
     
-    if (error) {
-      console.error("Error calling discern-analysis function:", error);
-      throw error;
+    while (attempt < maxRetries) {
+      try {
+        // Chamar a Edge Function do Supabase para análise DISCERN
+        const { data, error } = await supabase.functions.invoke("discern-analysis", {
+          body: { url, title, isVideo },
+        });
+        
+        if (error) {
+          throw error;
+        }
+        
+        // Verificar se há erro na resposta
+        if (data && data.error) {
+          throw new Error(data.error);
+        }
+        
+        // Verificar se o formato da resposta é válido
+        if (!data || !data.title || !data.url || data.status === "error") {
+          throw new Error("Formato de resposta inválido da análise DISCERN");
+        }
+        
+        console.log(`Analysis complete for ${url} with score: ${data.totalScore}`);
+        return data;
+      } catch (retryError) {
+        lastError = retryError as Error;
+        attempt++;
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.log(`Tentativa ${attempt} falhou, aguardando ${delay}ms antes de tentar novamente`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
     
-    // Verificar se há erro na resposta
-    if (data && data.error) {
-      console.error("Error in discern-analysis response:", data.error);
-      throw new Error(data.error);
-    }
-    
-    // Verificar se o formato da resposta é válido
-    if (!data || !data.title || !data.url) {
-      console.error("Unexpected response format:", data);
-      throw new Error("Formato de resposta inválido da análise DISCERN");
-    }
-    
-    console.log(`Analysis complete for ${url} with score: ${data.totalScore}`);
-    return data;
+    throw new Error(`Falha após ${maxRetries} tentativas: ${lastError?.message}`);
   } catch (error) {
     console.error(`Error analyzing URL ${url}:`, error);
-    throw error; // Changed to throw error instead of returning null
+    throw error;
   }
 }
 
@@ -184,7 +199,8 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
           }
         }
       } catch (error) {
-        errors.push({ url: result.url, error: error.message });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        errors.push({ url: result.url, error: errorMessage });
         console.error(`❌ Falha ao analisar ${result.url}:`, error);
         // Continue para a próxima URL mesmo se uma falhar
       }
@@ -197,8 +213,9 @@ export async function batchAnalyzeWithDiscern(searchResults: SearchResultItem[])
     
     console.log(`Completed analysis of ${results.length}/${urlsToProcess.length} URLs`);
     
+    // Modificado para retornar resultados mesmo se alguns falharem
     if (results.length === 0) {
-      throw new Error("Nenhuma análise foi concluída com sucesso");
+      throw new Error(`Nenhuma análise foi concluída com sucesso. Erros: ${JSON.stringify(errors)}`);
     }
     
     return results;
