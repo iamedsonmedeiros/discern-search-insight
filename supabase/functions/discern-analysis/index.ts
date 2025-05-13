@@ -2,10 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import OpenAI from "npm:openai@4.20.1";
 import { createClient } from "npm:@supabase/supabase-js@2.38.0";
-import ytdl from "npm:ytdl-core@4.11.5";
+import { VideoIntelligenceServiceClient } from "npm:@google-cloud/video-intelligence@5.0.0";
 
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-const OPENAI_ASSISTANT_ID = Deno.env.get("OPENAI_ASSISTANT_ID");
+const GOOGLE_APPLICATION_CREDENTIALS = Deno.env.get("GOOGLE_APPLICATION_CREDENTIALS");
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,121 +20,94 @@ function isVideoUrl(url: string): boolean {
     /(instagram\.com|instagr\.am)\/(?:p|reel)\//i,
     /tiktok\.com\/@[^\/]+\/video\//i,
     /facebook\.com\/.*\/videos\//i,
+    /globo\.com\/.*\/video\//i
   ];
 
   return videoPatterns.some(pattern => pattern.test(url));
 }
 
-async function extractYoutubeAudio(url: string): Promise<Uint8Array | null> {
+async function analyzeVideoContent(url: string): Promise<string> {
   try {
-    console.log(`Iniciando extração de áudio do YouTube: ${url}`);
-    
-    if (!ytdl.validateURL(url)) {
-      throw new Error("URL do YouTube inválida");
-    }
-    
-    const maxRetries = 3;
-    let attempt = 0;
-    let lastError: Error | null = null;
-    
-    while (attempt < maxRetries) {
-      try {
-        const info = await ytdl.getInfo(url, {
-          requestOptions: {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-          }
-        });
-        
-        // Get only the audio format with the smallest file size
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-        const audioFormat = audioFormats.sort((a, b) => 
-          (a.contentLength ? parseInt(a.contentLength) : Infinity) - 
-          (b.contentLength ? parseInt(b.contentLength) : Infinity)
-        )[0];
-        
-        if (!audioFormat) {
-          throw new Error("Nenhum formato de áudio disponível");
-        }
-        
-        const audioResponse = await fetch(audioFormat.url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
-        });
-        
-        if (!audioResponse.ok) {
-          throw new Error(`Falha ao baixar áudio: ${audioResponse.status}`);
-        }
-        
-        const arrayBuffer = await audioResponse.arrayBuffer();
-        console.log("Áudio extraído com sucesso");
-        return new Uint8Array(arrayBuffer);
-      } catch (retryError) {
-        lastError = retryError as Error;
-        attempt++;
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt - 1) * 1000;
-          console.log(`Tentativa ${attempt} falhou, aguardando ${delay}ms antes de tentar novamente`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-    
-    throw new Error(`Falha após ${maxRetries} tentativas: ${lastError?.message}`);
-  } catch (error) {
-    console.error(`Erro ao extrair áudio do YouTube: ${error.message}`);
-    return null;
-  }
-}
+    console.log(`Iniciando análise de vídeo: ${url}`);
 
-async function transcribeAudio(audioBuffer: Uint8Array): Promise<string> {
-  if (!OPENAI_API_KEY) {
-    throw new Error("API Key da OpenAI não configurada");
-  }
-  
-  try {
-    console.log("Iniciando transcrição de áudio");
-    
-    const openai = new OpenAI({
-      apiKey: OPENAI_API_KEY
+    const videoClient = new VideoIntelligenceServiceClient({
+      credentials: JSON.parse(GOOGLE_APPLICATION_CREDENTIALS || '{}')
     });
-    
-    const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
-    const audioFile = new File([audioBlob], "audio.mp4", { type: "audio/mp4" });
-    
-    const transcription = await openai.audio.transcriptions.create({
-      file: audioFile,
-      model: "whisper-1",
-      language: "pt",
-      response_format: "text"
+
+    // Get video metadata first
+    const metadata = await extractVideoMetadata(url);
+    let content = `Título: ${metadata.title}\nDescrição: ${metadata.description}\n\n`;
+
+    // Analyze video with Google Cloud Video Intelligence
+    const [operation] = await videoClient.annotateVideo({
+      inputUri: url,
+      features: [
+        'LABEL_DETECTION',
+        'SPEECH_TRANSCRIPTION',
+        'TEXT_DETECTION',
+        'OBJECT_TRACKING',
+        'EXPLICIT_CONTENT_DETECTION'
+      ],
+      videoContext: {
+        speechTranscriptionConfig: {
+          languageCode: 'pt-BR',
+          enableAutomaticPunctuation: true,
+        },
+      },
     });
-    
-    console.log("Transcrição concluída com sucesso");
-    return transcription || "";
+
+    const [result] = await operation.promise();
+
+    // Add speech transcription
+    if (result.speechTranscriptions && result.speechTranscriptions.length > 0) {
+      content += "\nTranscrição do Áudio:\n";
+      result.speechTranscriptions.forEach(transcription => {
+        if (transcription.alternatives && transcription.alternatives.length > 0) {
+          content += transcription.alternatives[0].transcript + "\n";
+        }
+      });
+    }
+
+    // Add detected labels
+    if (result.labelAnnotations && result.labelAnnotations.length > 0) {
+      content += "\nTópicos Detectados:\n";
+      result.labelAnnotations.forEach(label => {
+        if (label.entity && label.entity.description) {
+          content += `- ${label.entity.description}\n`;
+        }
+      });
+    }
+
+    // Add detected text
+    if (result.textAnnotations && result.textAnnotations.length > 0) {
+      content += "\nTexto Detectado no Vídeo:\n";
+      result.textAnnotations.forEach(text => {
+        if (text.text) {
+          content += `${text.text}\n`;
+        }
+      });
+    }
+
+    // Add detected objects
+    if (result.objectAnnotations && result.objectAnnotations.length > 0) {
+      content += "\nObjetos Detectados:\n";
+      result.objectAnnotations.forEach(object => {
+        if (object.entity && object.entity.description) {
+          content += `- ${object.entity.description}\n`;
+        }
+      });
+    }
+
+    console.log("Análise de vídeo concluída com sucesso");
+    return content;
   } catch (error) {
-    console.error(`Erro na transcrição do áudio: ${error.message}`);
-    throw new Error(`Falha na transcrição: ${error.message}`);
+    console.error(`Erro na análise do vídeo: ${error.message}`);
+    throw new Error(`Falha na análise do vídeo: ${error.message}`);
   }
 }
 
 async function extractVideoMetadata(url: string): Promise<{ title: string; description: string }> {
   try {
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      const info = await ytdl.getInfo(url, {
-        requestOptions: {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
-        }
-      });
-      return {
-        title: info.videoDetails.title || "",
-        description: info.videoDetails.description || ""
-      };
-    }
-    
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -175,33 +148,8 @@ async function extractUrlContent(url: string): Promise<string> {
     console.log(`Iniciando extração de conteúdo: ${url}`);
     
     if (isVideoUrl(url)) {
-      console.log("URL de vídeo detectada");
-      
-      const metadata = await extractVideoMetadata(url);
-      let content = `Título: ${metadata.title}\nDescrição: ${metadata.description}\n\n`;
-      
-      if (url.includes("youtube.com") || url.includes("youtu.be")) {
-        try {
-          const audioBuffer = await extractYoutubeAudio(url);
-          if (audioBuffer) {
-            const transcription = await transcribeAudio(audioBuffer);
-            content += `Transcrição:\n${transcription}`;
-          } else {
-            content += "Não foi possível extrair o áudio para transcrição. Análise baseada apenas nos metadados do vídeo.";
-          }
-        } catch (audioError) {
-          console.error("Erro no processamento de áudio:", audioError);
-          content += `\nNota: Análise baseada apenas nos metadados do vídeo devido a: ${audioError.message}`;
-        }
-      } else {
-        content += "Transcrição não disponível para esta plataforma de vídeo.";
-      }
-      
-      if (!content.trim()) {
-        throw new Error("Não foi possível extrair conteúdo do vídeo");
-      }
-      
-      return content;
+      console.log("URL de vídeo detectada, usando Google Cloud Video Intelligence");
+      return await analyzeVideoContent(url);
     }
     
     const response = await fetch(url, {
@@ -235,7 +183,7 @@ async function extractUrlContent(url: string): Promise<string> {
     throw new Error(`Tipo de conteúdo não suportado: ${contentType}`);
   } catch (error) {
     console.error(`Erro ao extrair conteúdo: ${error.message}`);
-    throw new Error(`Falha ao extrair conteúdo: ${error.message}`);
+    throw error;
   }
 }
 
@@ -293,7 +241,7 @@ async function analyzeWithOpenAI(content: string, title: string, url: string): P
         return {
           url,
           title: title || url,
-          type: result.type || "HTML",
+          type: result.type || (isVideoUrl(url) ? "VIDEO" : "HTML"),
           totalScore: result.totalScore || 0,
           scores: result.scores || [],
           observations: result.observations || ""
@@ -312,7 +260,7 @@ async function analyzeWithOpenAI(content: string, title: string, url: string): P
     throw new Error(`Falha após ${maxRetries} tentativas: ${lastError?.message}`);
   } catch (error) {
     console.error("Erro na análise OpenAI:", error);
-    throw new Error(`Falha na análise: ${error.message}`);
+    throw error;
   }
 }
 
@@ -326,6 +274,22 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           error: "API Key da OpenAI não configurada",
+          status: "error"
+        }),
+        { 
+          status: 500,
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json" 
+          } 
+        }
+      );
+    }
+
+    if (!GOOGLE_APPLICATION_CREDENTIALS) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Credenciais do Google Cloud não configuradas",
           status: "error"
         }),
         { 
